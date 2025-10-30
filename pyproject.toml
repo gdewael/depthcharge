@@ -13,7 +13,7 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "torch>=2.0.0",
     "polars>=0.19.0",
@@ -55,9 +55,6 @@ docs = [
      "mkdocstrings[python]>=0.18,<0.25",
      "mkquartodocs",
 ]
-dev = [
-    "pre-commit>=2.7.1"
-]
 
 [tool.setuptools]
 include-package-data = false
@@ -87,3 +84,10 @@ ignore = ["D213", "ANN101", "D203", "D100", "ANN102", "D401"]
 "__init__.py" = ["F401", "D104"]
 "depthcharge/encoders/sinusoidal.py" = ["N803"]
 "depthcharge/feedforward.py" = ["N803"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pre-commit>=2.7.1",
+    "pytest-cov>=7.0.0",
+]
