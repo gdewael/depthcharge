@@ -85,3 +85,8 @@ ignore = ["D213", "ANN101", "D203", "D100", "ANN102", "D401"]
 "__init__.py" = ["F401", "D104"]
 "depthcharge/encoders/sinusoidal.py" = ["N803"]
 "depthcharge/feedforward.py" = ["N803"]
+
+[dependency-groups]
+docs = [
+    "mkdocs-autorefs<=1.3.1",
+]
