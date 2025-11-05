@@ -6,10 +6,12 @@ import logging
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
-from os import PathLike
+from contextlib import contextmanager
+from os import PathLike, fspath
 from typing import Any
 
 import pyarrow as pa
+import timsrust_pyo3
 from cloudpathlib import AnyPath
 from pyteomics.mgf import MGF
 from pyteomics.mzml import MzML
@@ -531,14 +533,175 @@ class MgfParser(BaseParser):
         raise ValueError("Invalid precursor charge.")
 
 
+class TdfParser(BaseParser):
+    """Parse mass spectra from a TDF file.
+
+    Parameters
+    ----------
+    peak_file : PathLike
+        The TDF file to parse. Expects a *.d folder.
+    ms_level : int
+        The MS level of the spectra to parse. Currently supported: 2
+    preprocessing_fn : Callable or Iterable[Callable], optional
+        The function(s) used to preprocess the mass spectra.
+    valid_charge : Iterable[int], optional
+        Only consider spectra with the specified precursor charges. If `None`,
+        any precursor charge is accepted.
+    custom_fields : dict of str to list of str, optional
+        Additional field to extract during peak file parsing. The key must
+        be the resulting column name and value must be an interable of
+        containing the necessary keys to retrieve the value from the
+        spectrum from the corresponding Pyteomics parser.
+    progress : bool, optional
+        Enable or disable the progress bar.
+
+    """
+
+    def __init__(
+        self,
+        peak_file: PathLike,
+        ms_level: int = 2,
+        preprocessing_fn: Callable | Iterable[Callable] | None = None,
+        valid_charge: Iterable[int] | None = None,
+        custom_fields: dict[str, Iterable[str]] | None = None,
+        progress: bool = True,
+    ) -> None:
+        """Initialize the TdfParser."""
+        warnings.warn(
+            "Due to the current limitations of the timsrust library, "
+            "m/z values are not temperature corrected for timsTOF files. "
+            "This may lead to deviations in m/z values. In our experience "
+            "these are typically mild, but use caution as your experience "
+            "may vary depending on your instrument and settings."
+        )
+
+        if ms_level != 2 and ms_level is not None:
+            raise ValueError(
+                f"ms_level {ms_level} is currently not supported. "
+                "Supported values are: 2."
+            )
+        if custom_fields is not None:
+            warnings.warn(
+                "custom_fields is currently not supported for "
+                "TdfParser. Continuing with default value `None`.",
+                UserWarning,
+                stacklevel=2,
+            )
+            custom_fields = None
+        super().__init__(
+            peak_file,
+            ms_level=ms_level,
+            preprocessing_fn=preprocessing_fn,
+            valid_charge=valid_charge,
+            custom_fields=custom_fields,
+            progress=progress,
+            id_type="index",
+        )
+        self._counter = -1
+
+    def sniff(self) -> None:
+        """Quickly test a file for the correct type.
+
+        Raises
+        ------
+        IOError
+            Raised if the file is not the expected format.
+
+        """
+        if (
+            not self.peak_file.exists()
+            or self.peak_file.suffix.lower() != ".d"
+        ):
+            raise OSError("Not a TDF file.")
+        try:
+            timsrust_pyo3.SpectrumReader(fspath(self.peak_file))
+        except OSError:
+            raise OSError("Not a TDF file.")
+
+    def _spectrum_to_dict(self, spectrum) -> dict:
+        """Convert a Spectrum into a plain dict using the known schema."""
+        p = spectrum.precursor
+        """
+        index: spectra are indexed by timsrust_pyo3 which aggregates multiple
+        scans within a frame to single "spectra". NOT a Hupo PSI standard
+        scan identifier. For more details, we refer to timsrust(_pyo3) code
+        and documentation.
+        """
+        return {
+            "index": spectrum.index,
+            "mz_values": list(spectrum.mz_values),
+            "intensities": list(spectrum.intensities),
+            "precursor": {
+                "mz": p.mz,
+                "rt": p.rt,
+                "im": p.im,
+                "charge": p.charge,
+                "intensity": p.intensity,
+            },
+            "collision_energy": spectrum.collision_energy,
+            "isolation_mz": spectrum.isolation_mz,
+            "isolation_width": spectrum.isolation_width,
+        }
+
+    @contextmanager
+    def open(self):
+        """Open the TDF file for reading."""
+        reader = timsrust_pyo3.SpectrumReader(fspath(self.peak_file))
+        broken_ids = []
+
+        def _iter():
+            n = len(reader)
+            for i in range(n):
+                try:
+                    spec = reader.get(i)
+                    yield self._spectrum_to_dict(spec)
+                except OSError:
+                    broken_ids.append(i)
+                    continue  # skip broken spectra
+            if len(broken_ids) > 0:
+                warnings.warn(
+                    "Skipped broken spectra at indices: "
+                    + ", ".join(map(str, broken_ids))
+                )
+
+        yield _iter()
+
+    def parse_spectrum(self, spectrum: dict) -> MassSpectrum:
+        """Parse a single spectrum.
+
+        Parameters
+        ----------
+        spectrum : dict
+            The dictionary defining the spectrum in TDF format.
+
+        """
+        self._counter += 1
+
+        precursor_mz = float(spectrum["precursor"]["mz"])
+        precursor_charge = float(spectrum["precursor"]["charge"])
+        precursor_im = float(spectrum["precursor"]["im"])
+
+        if self.valid_charge is None or precursor_charge in self.valid_charge:
+            return MassSpectrum(
+                filename=str(self.peak_file),
+                scan_id=spectrum[
+                    "index"
+                ],  # NOT a Hupo PSI standard scan identifier
+                mz=spectrum["mz_values"],
+                intensity=spectrum["intensities"],
+                ms_level=2,
+                precursor_mz=precursor_mz,
+                precursor_charge=precursor_charge,
+                ion_mobility=precursor_im,
+            )
+
+        raise ValueError("Invalid precursor charge.")
+
+
 class ParserFactory:
     """Figure out what parser to use."""
 
-    parsers = [
-        MzmlParser,
-        MzxmlParser,
-        MgfParser,
-    ]
+    parsers = [MzmlParser, MzxmlParser, MgfParser, TdfParser]
 
     @classmethod
     def get_parser(cls, peak_file: PathLike, **kwargs: dict) -> BaseParser:
