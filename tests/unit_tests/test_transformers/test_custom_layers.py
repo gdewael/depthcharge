@@ -13,10 +13,10 @@ from depthcharge.transformers.layers import (
 @pytest.mark.parametrize(
         "d_model,nhead,dim_feedforward,dropout",
         [
-            (128, 8, 1024, 0.0),  # No dropout for exact comparison
-            (256, 8, 2048, 0.0),
-            (512, 8, 512, 0.0),
-            (64, 4, 256, 0.0),
+            (128, 8, 1024, 0.0),
+            (256, 8, 2048, 0.1),
+            (512, 8, 512, 0.2),
+            (64, 4, 256, 0.3),
         ],
     )
 @pytest.mark.parametrize("batch_size,seq_len", [(2, 10), (4, 20), (1, 5)])
@@ -96,10 +96,10 @@ def test_encoder_equivalence(
 @pytest.mark.parametrize(
         "d_model,nhead,dim_feedforward,dropout",
         [
-            (128, 8, 1024, 0.0),  # No dropout for exact comparison
-            (256, 8, 2048, 0.0),
-            (512, 8, 512, 0.0),
-            (64, 4, 256, 0.0),
+            (128, 8, 1024, 0.0),
+            (256, 8, 2048, 0.1),
+            (512, 8, 512, 0.2),
+            (64, 4, 256, 0.3),
         ],
     )
 @pytest.mark.parametrize("batch_size,seq_len", [(2, 10), (4, 20), (1, 5)])
