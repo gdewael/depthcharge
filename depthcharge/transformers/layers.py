@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 
-class CustomTransformerEncoderLayer(nn.Module):
+class TransformerEncoderLayer(nn.Module):
     """Custom Transformer encoder layer.
 
     Parameters
@@ -43,12 +43,12 @@ class CustomTransformerEncoderLayer(nn.Module):
         norm_first: bool = False,
         batch_first: bool = True,
     ) -> None:
-        """Initialize a CustomTransformerEncoderLayer."""
+        """Initialize a TransformerEncoderLayer."""
         super().__init__()
 
         assert (
             batch_first==True
-        ), "CustomTransformerEncoderLayer requires batch_first=True"
+        ), "TransformerEncoderLayer requires batch_first=True"
 
         self.d_model = d_model
         self.nhead = nhead
@@ -170,14 +170,8 @@ class CustomTransformerEncoderLayer(nn.Module):
         return self.dropout2(x)
 
 
-class CustomTransformerDecoderLayer(nn.Module):
+class TransformerDecoderLayer(nn.Module):
     """A custom Transformer decoder layer.
-
-    This implementation exactly replicates the behavior of
-    `torch.nn.TransformerDecoderLayer` with `batch_first=True` and the
-    default activation function (ReLU). It serves as a foundation for
-    future extensions to support custom attention mechanisms, rotary
-    embeddings, and efficient attention variants.
 
     Parameters
     ----------
@@ -211,12 +205,12 @@ class CustomTransformerDecoderLayer(nn.Module):
         norm_first: bool = False,
         batch_first: bool = True,
     ) -> None:
-        """Initialize a CustomTransformerDecoderLayer."""
+        """Initialize a TransformerDecoderLayer."""
         super().__init__()
 
         assert (
             batch_first==True
-        ), "CustomTransformerDecoderLayer requires batch_first=True"
+        ), "TransformerDecoderLayer requires batch_first=True"
 
         self.d_model = d_model
         self.nhead = nhead
@@ -378,27 +372,6 @@ class CustomTransformerDecoderLayer(nn.Module):
         key_padding_mask: Tensor | None,
         is_causal: bool = False,
     ) -> Tensor:
-        """Multi-head cross-attention block.
-
-        Parameters
-        ----------
-        x : Tensor of shape (batch_size, tgt_seq_len, d_model)
-            Query tensor.
-        mem : Tensor of shape (batch_size, src_seq_len, d_model)
-            Key and value tensor from encoder.
-        attn_mask : Tensor, optional
-            Attention mask.
-        key_padding_mask : Tensor, optional
-            Key padding mask.
-        is_causal : bool, optional
-            Whether to apply causal masking.
-
-        Returns
-        -------
-        Tensor of shape (batch_size, tgt_seq_len, d_model)
-            Output after cross-attention and dropout.
-
-        """
         x = self.multihead_attn(
             x,
             mem,
@@ -414,3 +387,172 @@ class CustomTransformerDecoderLayer(nn.Module):
     def _ff_block(self, x: Tensor) -> Tensor:
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
         return self.dropout3(x)
+
+
+def _get_clones(module, N):
+    # FIXME: copy.deepcopy() is not defined on nn.module, from PyTorch source code
+    import copy
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
+
+class TransformerEncoder(nn.Module):
+    """Custom Transformer encoder.
+
+    A stack of N encoder layers, replicates `torch.nn.TransformerEncoder`.
+
+    Parameters
+    ----------
+    encoder_layer : TransformerEncoderLayer
+        An instance of the TransformerEncoderLayer class.
+    num_layers : int
+        The number of sub-encoder-layers in the encoder.
+    norm : nn.Module, optional
+        The layer normalization component (optional).
+
+    """
+
+    def __init__(
+        self,
+        encoder_layer: TransformerEncoderLayer,
+        num_layers: int,
+        norm: nn.Module | None = None,
+    ) -> None:
+        """Initialize a TransformerEncoder."""
+        super().__init__()
+        self.layers = _get_clones(encoder_layer, num_layers)
+        self.num_layers = num_layers
+        self.norm = norm
+
+    def forward(
+        self,
+        src: Tensor,
+        mask: Tensor | None = None,
+        src_key_padding_mask: Tensor | None = None,
+        is_causal: bool = False,
+    ) -> Tensor:
+        """Pass the input through the encoder layers in turn.
+
+        Parameters
+        ----------
+        src : Tensor of shape (batch_size, seq_len, d_model)
+            The sequence to the encoder.
+        mask : Tensor, optional
+            The mask for the src sequence with shape (seq_len, seq_len)
+            or (batch_size * num_heads, seq_len, seq_len).
+        src_key_padding_mask : Tensor, optional
+            The mask for the src keys per batch with shape
+            (batch_size, seq_len). True values indicate positions that
+            should be masked (not attended to).
+        is_causal : bool, optional
+            If True, applies a causal mask as src_mask. Should not be
+            provided together with mask.
+
+        Returns
+        -------
+        Tensor of shape (batch_size, seq_len, d_model)
+            The output of the encoder.
+
+        """
+        output = src
+        for mod in self.layers:
+            output = mod(
+                output,
+                src_mask=mask,
+                src_key_padding_mask=src_key_padding_mask,
+                is_causal=is_causal,
+            )
+
+        if self.norm is not None:
+            output = self.norm(output)
+
+        return output
+
+
+class TransformerDecoder(nn.Module):
+    """Custom Transformer decoder.
+
+    A stack of N decoder layers. This implementation exactly replicates the
+    behavior of `torch.nn.TransformerDecoder` and serves as a foundation for
+    future extensions.
+
+    Parameters
+    ----------
+    decoder_layer : TransformerDecoderLayer
+        An instance of the TransformerDecoderLayer class.
+    num_layers : int
+        The number of sub-decoder-layers in the decoder.
+    norm : nn.Module, optional
+        The layer normalization component (optional).
+
+    """
+
+    def __init__(
+        self,
+        decoder_layer: TransformerDecoderLayer,
+        num_layers: int,
+        norm: nn.Module | None = None,
+    ) -> None:
+        """Initialize a TransformerDecoder."""
+        super().__init__()
+        self.layers = _get_clones(decoder_layer, num_layers)
+        self.num_layers = num_layers
+        self.norm = norm
+
+    def forward(
+        self,
+        tgt: Tensor,
+        memory: Tensor,
+        tgt_mask: Tensor | None = None,
+        memory_mask: Tensor | None = None,
+        tgt_key_padding_mask: Tensor | None = None,
+        memory_key_padding_mask: Tensor | None = None,
+        tgt_is_causal: bool = False,
+        memory_is_causal: bool = False,
+    ) -> Tensor:
+        """Pass the inputs (and masks) through the decoder layers in turn.
+
+        Parameters
+        ----------
+        tgt : Tensor of shape (batch_size, tgt_seq_len, d_model)
+            The sequence to the decoder.
+        memory : Tensor of shape (batch_size, src_seq_len, d_model)
+            The sequence from the last layer of the encoder.
+        tgt_mask : Tensor, optional
+            The mask for the tgt sequence.
+        memory_mask : Tensor, optional
+            The mask for the memory sequence.
+        tgt_key_padding_mask : Tensor, optional
+            The mask for the tgt keys per batch with shape
+            (batch_size, tgt_seq_len).
+        memory_key_padding_mask : Tensor, optional
+            The mask for the memory keys per batch with shape
+            (batch_size, src_seq_len).
+        tgt_is_causal : bool, optional
+            If True, applies a causal mask as tgt_mask.
+        memory_is_causal : bool, optional
+            If True, applies a causal mask as memory_mask.
+
+        Returns
+        -------
+        Tensor of shape (batch_size, tgt_seq_len, d_model)
+            The output of the decoder.
+
+        """
+        output = tgt
+
+        for mod in self.layers:
+            output = mod(
+                output,
+                memory,
+                tgt_mask=tgt_mask,
+                memory_mask=memory_mask,
+                tgt_key_padding_mask=tgt_key_padding_mask,
+                memory_key_padding_mask=memory_key_padding_mask,
+                tgt_is_causal=tgt_is_causal,
+                memory_is_causal=memory_is_causal,
+            )
+
+        if self.norm is not None:
+            output = self.norm(output)
+
+        return output
