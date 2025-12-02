@@ -5,11 +5,11 @@ import torch
 import torch.nn as nn
 from depthcharge.utils import generate_tgt_mask
 from depthcharge.transformers.layers import (
-    CustomTransformerEncoderLayer,
-    CustomTransformerDecoderLayer,
+    TransformerEncoderLayer,
+    TransformerDecoderLayer,
 )
         
-        
+
 @pytest.mark.parametrize(
         "d_model,nhead,dim_feedforward,dropout",
         [
@@ -37,7 +37,7 @@ def test_encoder_equivalence(
         norm_first=norm_first,
     )
     torch.manual_seed(42)
-    custom_layer = CustomTransformerEncoderLayer(
+    custom_layer = TransformerEncoderLayer(
         d_model=d_model,
         nhead=nhead,
         dim_feedforward=dim_feedforward,
@@ -120,7 +120,7 @@ def test_decoder_equivalence(
         norm_first=norm_first,
     )
     torch.manual_seed(42)
-    custom_layer = CustomTransformerDecoderLayer(
+    custom_layer = TransformerDecoderLayer(
         d_model=d_model,
         nhead=nhead,
         dim_feedforward=dim_feedforward,
