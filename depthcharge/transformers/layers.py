@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from .attn import MultiheadAttention
+
 
 class TransformerEncoderLayer(nn.Module):
     """Custom Transformer encoder layer.
@@ -29,6 +31,8 @@ class TransformerEncoderLayer(nn.Module):
     norm_first : bool, optional
         If True, layer norm is done prior to attention and feedforward
         operations (pre-norm). Otherwise it's done after (post-norm).
+    attention_backend : str, optional
+        Attention implementation: "native" (default), "flex", or "sdpa".
 
     """
 
@@ -42,6 +46,7 @@ class TransformerEncoderLayer(nn.Module):
         layer_norm_eps: float = 1e-5,
         norm_first: bool = False,
         batch_first: bool = True,
+        attention_backend: str = "sdpa",
     ) -> None:
         """Initialize a TransformerEncoderLayer."""
         super().__init__()
@@ -55,14 +60,23 @@ class TransformerEncoderLayer(nn.Module):
         self.dim_feedforward = dim_feedforward
         self.dropout_p = dropout
         self.norm_first = norm_first
+        self.attention_backend = attention_backend
 
-        # Multi-head self-attention
-        self.self_attn = nn.MultiheadAttention(
-            embed_dim=d_model,
-            num_heads=nhead,
-            dropout=dropout,
-            batch_first=True,
-        )
+        if attention_backend == "native":
+            self.self_attn = nn.MultiheadAttention(
+                embed_dim=d_model,
+                num_heads=nhead,
+                dropout=dropout,
+                batch_first=True,
+            )
+        else:
+            self.self_attn = MultiheadAttention(
+                embed_dim=d_model,
+                num_heads=nhead,
+                dropout=dropout,
+                batch_first=True,
+                attention_backend=attention_backend,
+            )
 
         # Feedforward network
         self.linear1 = nn.Linear(d_model, dim_feedforward)
@@ -191,6 +205,8 @@ class TransformerDecoderLayer(nn.Module):
     norm_first : bool, optional
         If True, layer norm is done prior to attention and feedforward
         operations (pre-norm). Otherwise it's done after (post-norm).
+    attention_backend : str, optional
+        Attention implementation: "native" (default), "flex", or "sdpa".
 
     """
 
@@ -204,6 +220,7 @@ class TransformerDecoderLayer(nn.Module):
         layer_norm_eps: float = 1e-5,
         norm_first: bool = False,
         batch_first: bool = True,
+        attention_backend: str = "sdpa",
     ) -> None:
         """Initialize a TransformerDecoderLayer."""
         super().__init__()
@@ -217,22 +234,34 @@ class TransformerDecoderLayer(nn.Module):
         self.dim_feedforward = dim_feedforward
         self.dropout_p = dropout
         self.norm_first = norm_first
+        self.attention_backend = attention_backend
 
-        # Multi-head self-attention
-        self.self_attn = nn.MultiheadAttention(
-            embed_dim=d_model,
-            num_heads=nhead,
-            dropout=dropout,
-            batch_first=True,
-        )
-
-        # Multi-head cross-attention
-        self.multihead_attn = nn.MultiheadAttention(
-            embed_dim=d_model,
-            num_heads=nhead,
-            dropout=dropout,
-            batch_first=True,
-        )
+        attn_args = {
+            "embed_dim": d_model,
+            "num_heads": nhead,
+            "dropout": dropout,
+            "batch_first": True,
+        }
+        
+        if attention_backend == "native":
+            self.self_attn = nn.MultiheadAttention(
+                **attn_args,
+            )
+        else:
+            self.self_attn = MultiheadAttention(
+                **attn_args,
+                attention_backend=attention_backend,
+            )
+            
+        if attention_backend == "native":
+            self.multihead_attn = nn.MultiheadAttention(
+                **attn_args,
+            )
+        else:
+            self.multihead_attn = MultiheadAttention(
+                **attn_args,
+                attention_backend=attention_backend,
+            )
 
         # Feedforward network
         self.linear1 = nn.Linear(d_model, dim_feedforward)
@@ -454,8 +483,8 @@ class TransformerEncoder(nn.Module):
 
         """
         output = src
-        for mod in self.layers:
-            output = mod(
+        for layer in self.layers:
+            output = layer(
                 output,
                 src_mask=mask,
                 src_key_padding_mask=src_key_padding_mask,
@@ -540,8 +569,8 @@ class TransformerDecoder(nn.Module):
         """
         output = tgt
 
-        for mod in self.layers:
-            output = mod(
+        for layer in self.layers:
+            output = layer(
                 output,
                 memory,
                 tgt_mask=tgt_mask,
