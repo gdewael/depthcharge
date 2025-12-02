@@ -5,7 +5,9 @@ from .analytes import (
     AnalyteTransformerEncoder,
 )
 from .layers import (
-    CustomTransformerDecoderLayer,
-    CustomTransformerEncoderLayer,
+    TransformerDecoder,
+    TransformerDecoderLayer,
+    TransformerEncoder,
+    TransformerEncoderLayer,
 )
 from .spectra import SpectrumTransformerEncoder

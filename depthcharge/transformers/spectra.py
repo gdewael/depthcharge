@@ -6,6 +6,7 @@ import torch
 
 from ..encoders import PeakEncoder
 from ..mixins import ModelMixin, TransformerMixin
+from .layers import TransformerEncoder, TransformerEncoderLayer
 
 
 class SpectrumTransformerEncoder(
@@ -48,7 +49,7 @@ class SpectrumTransformerEncoder(
     peak_encoder : torch.nn.Module or Callable
         The function to encode the (m/z, intensity) tuples of each mass
         spectrum.
-    transformer_encoder : torch.nn.TransformerEncoder
+    transformer_encoder : depthcharge.transformers.TransformerEncoder
         The Transformer encoder layers.
 
     """
@@ -78,7 +79,7 @@ class SpectrumTransformerEncoder(
             self.peak_encoder = torch.nn.Linear(2, d_model)
 
         # The Transformer layers:
-        layer = torch.nn.TransformerEncoderLayer(
+        layer = TransformerEncoderLayer(
             d_model=self.d_model,
             nhead=self.nhead,
             dim_feedforward=self.dim_feedforward,
@@ -86,7 +87,7 @@ class SpectrumTransformerEncoder(
             dropout=self.dropout,
         )
 
-        self.transformer_encoder = torch.nn.TransformerEncoder(
+        self.transformer_encoder = TransformerEncoder(
             layer,
             num_layers=self.n_layers,
         )

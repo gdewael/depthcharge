@@ -8,6 +8,7 @@ from .. import utils
 from ..encoders import PositionalEncoder
 from ..mixins import ModelMixin, TransformerMixin
 from ..tokenizers import Tokenizer
+from .layers import TransformerEncoder, TransformerEncoderLayer, TransformerDecoder, TransformerDecoderLayer
 
 
 class _AnalyteTransformer(torch.nn.Module, ModelMixin, TransformerMixin):
@@ -185,7 +186,7 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
         )
 
         # The Transformer layers:
-        layer = torch.nn.TransformerEncoderLayer(
+        layer = TransformerEncoderLayer(
             d_model=self.d_model,
             nhead=self.nhead,
             dim_feedforward=self.dim_feedforward,
@@ -193,7 +194,7 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
             dropout=self.dropout,
         )
 
-        self.transformer_encoder = torch.nn.TransformerEncoder(
+        self.transformer_encoder = TransformerEncoder(
             layer,
             num_layers=n_layers,
         )
@@ -216,7 +217,7 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
             Additional data. These may be used by overwriting the
             `global_token_hook()` method in a subclass.
         mask : torch.Tensor
-            Passed to `torch.nn.TransformerEncoder.forward()`. The mask
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask
             for the sequence.
         **kwargs : dict
             Additional data fields. These may be used by overwriting
@@ -305,7 +306,7 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
         )
 
         # Additional model components
-        layer = torch.nn.TransformerDecoderLayer(
+        layer = TransformerDecoderLayer(
             d_model=d_model,
             nhead=nhead,
             dim_feedforward=dim_feedforward,
@@ -313,7 +314,7 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             dropout=dropout,
         )
 
-        self.transformer_decoder = torch.nn.TransformerDecoder(
+        self.transformer_decoder = TransformerDecoder(
             layer,
             num_layers=n_layers,
         )
@@ -348,13 +349,13 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             The representations from a ``TransformerEncoder``, such as a
             ``SpectrumTransformerEncoder``.
         memory_key_padding_mask : torch.Tensor of shape (batch_size, len_seq)
-            Passed to `torch.nn.TransformerEncoder.forward()`. The mask that
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask that
             indicates which elements of ``memory`` are padding.
         memory_mask : torch.Tensor
-            Passed to `torch.nn.TransformerEncoder.forward()`. The mask
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask
             for the memory sequence.
         tgt_mask : torch.Tensor or None
-            Passed to `torch.nn.TransformerEncoder.forward()`. The default
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The default
             is a mask that is suitable for predicting the next element in
             the sequence.
         **kwargs : dict
@@ -445,13 +446,13 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             The representations from a ``TransformerEncoder``, such as a
             ``SpectrumTransformerEncoder``.
         memory_key_padding_mask : torch.Tensor of shape (batch_size, len_seq)
-            Passed to `torch.nn.TransformerEncoder.forward()`. The mask that
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask that
             indicates which elements of ``memory`` are padding.
         memory_mask : torch.Tensor
-            Passed to `torch.nn.TransformerEncoder.forward()`. The mask
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask
             for the memory sequence.
         tgt_mask : torch.Tensor or None
-            Passed to `torch.nn.TransformerEncoder.forward()`. The default
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The default
             is a mask that is suitable for predicting the next element in
             the sequence.
         **kwargs : dict
