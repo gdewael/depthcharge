@@ -32,7 +32,7 @@ class TransformerEncoderLayer(nn.Module):
         If True, layer norm is done prior to attention and feedforward
         operations (pre-norm). Otherwise it's done after (post-norm).
     attention_backend : str, optional
-        Attention implementation: "sdpa" (default), "flex", or "native".
+        Attention implementation: "sdpa" (default) or "native".
     enable_sdpa_math : bool, optional
         If True, enable SDPA math kernel when using "sdpa" backend.
         Default: True
@@ -87,7 +87,6 @@ class TransformerEncoderLayer(nn.Module):
                 num_heads=nhead,
                 dropout=dropout,
                 batch_first=True,
-                attention_backend=attention_backend,
                 enable_sdpa_math=enable_sdpa_math,
                 enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
                 enable_sdpa_flash_attention=enable_sdpa_flash_attention,
@@ -117,7 +116,6 @@ class TransformerEncoderLayer(nn.Module):
                 f"activation should be 'relu', 'gelu', or a callable, "
                 f"not {activation}"
             )
-
         
 
     def forward(
@@ -131,23 +129,22 @@ class TransformerEncoderLayer(nn.Module):
 
         Parameters
         ----------
-        src : Tensor of shape (batch_size, seq_len, d_model)
-            The sequence to the encoder layer.
+        src : Tensor or NestedTensor
+            For dense: (batch_size, seq_len, d_model).
+            For nested: variable-length sequences without padding.
         src_mask : Tensor, optional
-            The mask for the src sequence with shape (seq_len, seq_len)
-            or (batch_size * num_heads, seq_len, seq_len).
+            Placeholder for compatibility with `torch.nn.TransformerEncoderLayer`.
+            Should always be None.
         src_key_padding_mask : Tensor, optional
-            The mask for the src keys per batch with shape
-            (batch_size, seq_len). True values indicate positions that
-            should be masked (not attended to).
+            Placeholder for compatibility with `torch.nn.TransformerEncoderLayer`.
+            Should always be None.
         is_causal : bool, optional
-            If True, applies a causal mask as src_mask. Should not be
-            provided together with src_mask.
+            If True, applies a causal mask.
 
         Returns
         -------
-        Tensor of shape (batch_size, seq_len, d_model)
-            The output of the encoder layer.
+        Tensor or NestedTensor
+            The output of the encoder layer. Same layout as inputs (dense or nested).
 
         """
         if self.norm_first:
@@ -221,7 +218,7 @@ class TransformerDecoderLayer(nn.Module):
         If True, layer norm is done prior to attention and feedforward
         operations (pre-norm). Otherwise it's done after (post-norm).
     attention_backend : str, optional
-        Attention implementation: "sdpa" (default), "flex", or "natvie".
+        Attention implementation: "sdpa" (default) or "native".
     enable_sdpa_math : bool, optional
         If True, enable SDPA math kernel when using "sdpa" backend.
         Default: True
@@ -276,7 +273,6 @@ class TransformerDecoderLayer(nn.Module):
         else:
             self.self_attn = MultiheadAttention(
                 **attn_args,
-                attention_backend=attention_backend,
                 enable_sdpa_math=enable_sdpa_math,
                 enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
                 enable_sdpa_flash_attention=enable_sdpa_flash_attention,
@@ -289,7 +285,6 @@ class TransformerDecoderLayer(nn.Module):
         else:
             self.multihead_attn = MultiheadAttention(
                 **attn_args,
-                attention_backend=attention_backend,
                 enable_sdpa_math=enable_sdpa_math,
                 enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
                 enable_sdpa_flash_attention=enable_sdpa_flash_attention,
@@ -338,29 +333,35 @@ class TransformerDecoderLayer(nn.Module):
 
         Parameters
         ----------
-        tgt : Tensor of shape (batch_size, tgt_seq_len, d_model)
+        tgt : Tensor or NestedTensor
+            For dense: (batch_size, tgt_seq_len, d_model).
+            For nested: variable-length sequences without padding.
             The sequence to the decoder layer.
-        memory : Tensor of shape (batch_size, src_seq_len, d_model)
+        memory : Tensor or NestedTensor
+            For dense: (batch_size, src_seq_len, d_model).
+            For nested: variable-length sequences without padding.
             The sequence from the last layer of the encoder.
         tgt_mask : Tensor, optional
-            The mask for the tgt sequence.
+            Placeholder for compatibility with `torch.nn.TransformerDecoderLayer`.
+            Should always be None.
         memory_mask : Tensor, optional
-            The mask for the memory sequence.
+            Placeholder for compatibility with `torch.nn.TransformerDecoderLayer`.
+            Should always be None.
         tgt_key_padding_mask : Tensor, optional
-            The mask for the tgt keys per batch with shape
-            (batch_size, tgt_seq_len).
+            Placeholder for compatibility with `torch.nn.TransformerDecoderLayer`.
+            Should always be None.
         memory_key_padding_mask : Tensor, optional
-            The mask for the memory keys per batch with shape
-            (batch_size, src_seq_len).
+            Placeholder for compatibility with `torch.nn.TransformerDecoderLayer`.
+            Should always be None.
         tgt_is_causal : bool, optional
-            If True, applies a causal mask as tgt_mask.
+            If True, applies a causal mask to the sequence to the decoder layer.
         memory_is_causal : bool, optional
-            If True, applies a causal mask as memory_mask.
+            If True, applies a causal mask during cross_attention from memory to targets.
 
         Returns
         -------
-        Tensor of shape (batch_size, tgt_seq_len, d_model)
-            The output of the decoder layer.
+        Tensor or NestedTensor
+            The output of the decoder layer. Same layout as tgt (dense or nested).
 
         """
         if self.norm_first:
@@ -412,7 +413,6 @@ class TransformerDecoderLayer(nn.Module):
         key_padding_mask: Tensor | None,
         is_causal: bool = False,
     ) -> Tensor:
-
         x = self.self_attn(
             x,
             x,

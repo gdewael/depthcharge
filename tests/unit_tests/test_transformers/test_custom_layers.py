@@ -20,11 +20,11 @@ from depthcharge.transformers.layers import (
             (64, 4, 256, 0.0), 
         ],
     )
-@pytest.mark.parametrize("batch_size,seq_len", [(2, 10), (4, 20), (1, 5)])
+@pytest.mark.parametrize("batch_size,seq_lens", [(2, (3,5)), (4, (8,20,10,4)), (3, (5,21,3))])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
 def test_encoder_equivalence(
-    d_model, nhead, dim_feedforward, dropout, batch_size, seq_len, norm_first, is_causal
+    d_model, nhead, dim_feedforward, dropout, batch_size, seq_lens, norm_first, is_causal
 ):
     """Test numerical equivalence with PyTorch TransformerEncoderLayer.
     By default, tests the equivalence of the sdpa attention backend."""
@@ -51,36 +51,36 @@ def test_encoder_equivalence(
     custom_layer.load_state_dict(pytorch_layer.state_dict())
 
     # Init input for both pytorch and custom separately to allow gradient comparison
-    torch.manual_seed(43)
-    src_pytorch = torch.randn(batch_size, seq_len, d_model)
-    src_custom = src_pytorch.clone()
-    src_pytorch.requires_grad = True
-    src_custom.requires_grad = True
     
-    key_padding_mask = torch.zeros(batch_size, seq_len).bool()
-    key_padding_mask[:, -3:] = True
+    src = []
+    for l in seq_lens:
+        torch.manual_seed(43)
+        src.append(torch.randn(1, l, d_model))
+    src = torch.nested.nested_tensor(src,layout=torch.jagged)
+    
+    src_padded = src.to_padded_tensor(0.0)
+    src.requires_grad = True
+    src_padded.requires_grad = True
+    
+    key_padding_mask = src_padded.sum(dim=2) == 0.0
     
     torch.manual_seed(44)
     pytorch_output = pytorch_layer(
-        src_pytorch,
-        is_causal=False,
-        src_mask = (generate_tgt_mask(seq_len) if is_causal else None), 
+        src_padded,
+        is_causal=is_causal,
+        src_mask = (generate_tgt_mask(max(seq_lens)) if is_causal else None), 
         src_key_padding_mask=key_padding_mask
     )
     torch.manual_seed(44)
     custom_output = custom_layer(
-        src_custom,
+        src,
         is_causal=is_causal,
         src_mask=None,
-        src_key_padding_mask=key_padding_mask
+        src_key_padding_mask=None
     )
-
-    if is_causal:
-        custom_output = custom_output[:, :-3]  # Compare only unmasked positions
-        pytorch_output = pytorch_output[:, :-3]
         
     torch.testing.assert_close(
-        custom_output, # Compare only unmasked positions
+        custom_output.to_padded_tensor(0.0), # Compare only unmasked positions
         pytorch_output,
         rtol=1e-3,
         atol=1e-5,
@@ -96,8 +96,8 @@ def test_encoder_equivalence(
 
     # Check gradients match
     torch.testing.assert_close(
-        src_custom.grad, 
-        src_pytorch.grad,
+        src.to_padded_tensor(0.0).grad, 
+        src_padded.grad,
         rtol=1e-3,
         atol=1e-5,
         msg="Gradients do not match",
