@@ -26,7 +26,8 @@ from depthcharge.transformers.layers import (
 def test_encoder_equivalence(
     d_model, nhead, dim_feedforward, dropout, batch_size, seq_len, norm_first, is_causal
 ):
-    """Test numerical equivalence with PyTorch TransformerEncoderLayer."""
+    """Test numerical equivalence with PyTorch TransformerEncoderLayer.
+    By default, tests the equivalence of the sdpa attention backend."""
     
     torch.manual_seed(42)
     pytorch_layer = nn.TransformerEncoderLayer(
@@ -59,15 +60,20 @@ def test_encoder_equivalence(
     key_padding_mask = torch.zeros(batch_size, seq_len).bool()
     key_padding_mask[:, -3:] = True
     
-    if is_causal:
-        src_mask = generate_tgt_mask(seq_len)
-    else:
-        src_mask = None
-    
     torch.manual_seed(44)
-    pytorch_output = pytorch_layer(src_pytorch, is_causal=is_causal, src_mask = src_mask, src_key_padding_mask=key_padding_mask)
+    pytorch_output = pytorch_layer(
+        src_pytorch,
+        is_causal=False,
+        src_mask = (generate_tgt_mask(seq_len) if is_causal else None), 
+        src_key_padding_mask=key_padding_mask
+    )
     torch.manual_seed(44)
-    custom_output = custom_layer(src_custom, is_causal=is_causal, src_mask = src_mask, src_key_padding_mask=key_padding_mask)
+    custom_output = custom_layer(
+        src_custom,
+        is_causal=is_causal,
+        src_mask=None,
+        src_key_padding_mask=key_padding_mask
+    )
 
     if is_causal:
         custom_output = custom_output[:, :-3]  # Compare only unmasked positions
@@ -151,18 +157,14 @@ def test_decoder_equivalence(
 
     memory_key_padding_mask = torch.zeros(batch_size, seq_len + 5).bool()
     memory_key_padding_mask[:, -3:] = True
-    
-    if is_causal:
-        tgt_mask = generate_tgt_mask(seq_len)
-    else:
-        tgt_mask = None
+
 
     torch.manual_seed(44)
     pytorch_output = pytorch_layer(
         tgt_pytorch,
         memory,
-        tgt_mask=tgt_mask,
-        tgt_is_causal=is_causal,
+        tgt_mask=(generate_tgt_mask(seq_len) if is_causal else None),
+        tgt_is_causal=False,
         tgt_key_padding_mask=tgt_key_padding_mask,
         memory_key_padding_mask=memory_key_padding_mask,
     )
@@ -170,7 +172,7 @@ def test_decoder_equivalence(
     custom_output = custom_layer(
         tgt_custom,
         memory,
-        tgt_mask=tgt_mask,
+        tgt_mask=None,
         tgt_is_causal=is_causal,
         tgt_key_padding_mask=tgt_key_padding_mask,
         memory_key_padding_mask=memory_key_padding_mask,
