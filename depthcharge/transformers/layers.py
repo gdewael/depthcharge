@@ -33,7 +33,16 @@ class TransformerEncoderLayer(nn.Module):
         operations (pre-norm). Otherwise it's done after (post-norm).
     attention_backend : str, optional
         Attention implementation: "native" (default), "flex", or "sdpa".
-
+    enable_sdpa_math : bool, optional
+        If True, enable SDPA math kernel when using "sdpa" backend.
+        Default: True
+    enable_sdpa_mem_efficient : bool, optional
+        If True, enable SDPA memory efficient kernel when using "sdpa" backend.
+        Default: True
+    enable_sdpa_flash_attention : bool, optional
+        If True, enable SDPA flash attention kernel when using "sdpa" backend.
+        Default: True
+        
     """
 
     def __init__(
@@ -47,6 +56,9 @@ class TransformerEncoderLayer(nn.Module):
         norm_first: bool = False,
         batch_first: bool = True,
         attention_backend: str = "sdpa",
+        enable_sdpa_math: bool = True,
+        enable_sdpa_mem_efficient: bool = True,
+        enable_sdpa_flash_attention: bool = True,
     ) -> None:
         """Initialize a TransformerEncoderLayer."""
         super().__init__()
@@ -76,6 +88,9 @@ class TransformerEncoderLayer(nn.Module):
                 dropout=dropout,
                 batch_first=True,
                 attention_backend=attention_backend,
+                enable_sdpa_math=enable_sdpa_math,
+                enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
+                enable_sdpa_flash_attention=enable_sdpa_flash_attention,
             )
 
         # Feedforward network
@@ -207,7 +222,15 @@ class TransformerDecoderLayer(nn.Module):
         operations (pre-norm). Otherwise it's done after (post-norm).
     attention_backend : str, optional
         Attention implementation: "native" (default), "flex", or "sdpa".
-
+    enable_sdpa_math : bool, optional
+        If True, enable SDPA math kernel when using "sdpa" backend.
+        Default: True
+    enable_sdpa_mem_efficient : bool, optional
+        If True, enable SDPA memory efficient kernel when using "sdpa" backend.
+        Default: True
+    enable_sdpa_flash_attention : bool, optional
+        If True, enable SDPA flash attention kernel when using "sdpa" backend.
+        Default: True
     """
 
     def __init__(
@@ -221,6 +244,9 @@ class TransformerDecoderLayer(nn.Module):
         norm_first: bool = False,
         batch_first: bool = True,
         attention_backend: str = "sdpa",
+        enable_sdpa_math: bool = True,
+        enable_sdpa_mem_efficient: bool = True,
+        enable_sdpa_flash_attention: bool = True,
     ) -> None:
         """Initialize a TransformerDecoderLayer."""
         super().__init__()
@@ -251,6 +277,9 @@ class TransformerDecoderLayer(nn.Module):
             self.self_attn = MultiheadAttention(
                 **attn_args,
                 attention_backend=attention_backend,
+                enable_sdpa_math=enable_sdpa_math,
+                enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
+                enable_sdpa_flash_attention=enable_sdpa_flash_attention,
             )
             
         if attention_backend == "native":
@@ -261,6 +290,9 @@ class TransformerDecoderLayer(nn.Module):
             self.multihead_attn = MultiheadAttention(
                 **attn_args,
                 attention_backend=attention_backend,
+                enable_sdpa_math=enable_sdpa_math,
+                enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
+                enable_sdpa_flash_attention=enable_sdpa_flash_attention,
             )
 
         # Feedforward network

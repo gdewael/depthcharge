@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+from torch.nn.attention import sdpa_kernel, SDPBackend
 
 
 class MultiheadAttention(nn.Module):
@@ -30,6 +31,15 @@ class MultiheadAttention(nn.Module):
         - "sdpa": Uses F.scaled_dot_product_attention (default)
         - "flex": Uses torch.nn.attention.flex_attention (requires PyTorch 2.5+)
         Default: "sdpa"
+    enable_sdpa_math : bool, optional
+        If True, enable SDPA math kernel when using "sdpa" backend.
+        Default: True
+    enable_sdpa_mem_efficient : bool, optional
+        If True, enable SDPA memory efficient kernel when using "sdpa" backend.
+        Default: True
+    enable_sdpa_flash_attention : bool, optional
+        If True, enable SDPA flash attention kernel when using "sdpa" backend.
+        Default: True
 
     """
 
@@ -41,6 +51,9 @@ class MultiheadAttention(nn.Module):
         bias: bool = True,
         batch_first: bool = True,
         attention_backend: str = "sdpa",
+        enable_sdpa_math: bool = True,
+        enable_sdpa_mem_efficient: bool = True,
+        enable_sdpa_flash_attention: bool = True,
     ) -> None:
         """Initialize CustomMultiheadAttention."""
         super().__init__()
@@ -63,7 +76,20 @@ class MultiheadAttention(nn.Module):
         self.dropout_p = dropout
         self.head_dim = embed_dim // num_heads
         self.attention_backend = attention_backend
+        
+        self.context_manager = []
+        if enable_sdpa_math:
+            self.context_manager.append(SDPBackend.MATH)
+        if enable_sdpa_flash_attention:
+            self.context_manager.append(SDPBackend.FLASH_ATTENTION)
+        if enable_sdpa_mem_efficient:
+            self.context_manager.append(SDPBackend.EFFICIENT_ATTENTION)
 
+        self.use_context_manager = False
+        if self.attention_backend == "sdpa":
+            self.use_context_manager = not all(
+                [enable_sdpa_math, enable_sdpa_flash_attention, enable_sdpa_mem_efficient]
+            )
 
         self.in_proj_weight = nn.Parameter(torch.empty(3 * embed_dim, embed_dim))
         if bias:
@@ -181,6 +207,39 @@ class MultiheadAttention(nn.Module):
 
         return attn_output, None
 
+    def _is_simple_causal_mask(self, attn_mask: Tensor) -> bool:
+        # Only handle 2D masks (seq_len, seq_len)
+        if attn_mask.dim() != 2:
+            return False
+
+        # Must be square
+        if attn_mask.shape[0] != attn_mask.shape[1]:
+            return False
+
+        seq_len = attn_mask.shape[0]
+
+        # Check for boolean mask (True = masked, False = not masked)
+        if attn_mask.dtype == torch.bool:
+            # Upper triangle should be True (masked), lower should be False
+            expected = torch.triu(
+                torch.ones(seq_len, seq_len, device=attn_mask.device, dtype=torch.bool),
+                diagonal=1
+            )
+            return torch.equal(attn_mask, expected)
+
+        # Check for float mask (-inf = masked, 0.0 = not masked)
+        # Allow for floating point precision issues
+        lower_triangle = torch.tril(attn_mask, diagonal=0)
+        upper_triangle = torch.triu(attn_mask, diagonal=1)
+
+        # Lower triangle + diagonal should be all zeros (or close to it)
+        lower_is_zero = torch.allclose(lower_triangle, torch.zeros_like(lower_triangle), atol=1e-6)
+
+        # Upper triangle should be all -inf
+        upper_is_neginf = torch.all(torch.isinf(upper_triangle) & (upper_triangle < 0))
+
+        return lower_is_zero and upper_is_neginf
+
     def _sdpa_attention(
         self,
         Q: Tensor,
@@ -190,7 +249,11 @@ class MultiheadAttention(nn.Module):
         key_padding_mask: Tensor | None = None,
         is_causal: bool = False,
     ) -> Tensor:
-        
+        # Auto-detect simple causal masks and optimize by using is_causal=True
+        if not is_causal and attn_mask is not None and self._is_simple_causal_mask(attn_mask):
+            attn_mask = None
+            is_causal = True
+
         if is_causal and attn_mask is not None:
             # Create explicit causal mask and combine with provided attn_mask
             tgt_len = Q.shape[2]
@@ -226,15 +289,27 @@ class MultiheadAttention(nn.Module):
                 
         # NOTE: Important case implicitly handled: when is_causal is True and attn_mask is None.
         # In this case, we ignore key_padding_mask and apply simple causal maksing
-
-        attn_output = F.scaled_dot_product_attention(
-            Q,
-            K,
-            V,
-            attn_mask=attn_mask,
-            dropout_p=self.dropout_p if self.training else 0.0,
-            is_causal=is_causal,
-        )
+        
+        
+        if self.use_context_manager:
+            with sdpa_kernel(self.context_manager):
+                 attn_output = F.scaled_dot_product_attention(
+                    Q,
+                    K,
+                    V,
+                    attn_mask=attn_mask,
+                    dropout_p=self.dropout_p if self.training else 0.0,
+                    is_causal=is_causal,
+                )
+        else:
+            attn_output = F.scaled_dot_product_attention(
+                Q,
+                K,
+                V,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout_p if self.training else 0.0,
+                is_causal=is_causal,
+            )
 
         return attn_output
 

@@ -192,6 +192,10 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
             dim_feedforward=self.dim_feedforward,
             batch_first=True,
             dropout=self.dropout,
+            attention_backend="sdpa",
+            enable_sdpa_math=True,
+            enable_sdpa_mem_efficient=True,
+            enable_sdpa_flash_attention=True,
         )
 
         self.transformer_encoder = TransformerEncoder(
@@ -312,6 +316,10 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             dim_feedforward=dim_feedforward,
             batch_first=True,
             dropout=dropout,
+            attention_backend="sdpa",
+            enable_sdpa_math=True,
+            enable_sdpa_mem_efficient=True,
+            enable_sdpa_flash_attention=True,
         )
 
         self.transformer_decoder = TransformerDecoder(
