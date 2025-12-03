@@ -39,7 +39,7 @@ class SpectrumTransformerEncoder(
         spectrum. `True` uses the default sinusoidal encoding and `False`
         instead performs a 1 to `d_model` learned linear projection.
     attention_backend : str, optional
-        Attention implementation: "sdpa" (default), "flex", or "natvie".
+        Attention implementation: "sdpa" (default), "flex", or "native".
 
     Attributes
     ----------
