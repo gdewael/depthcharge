@@ -38,6 +38,8 @@ class SpectrumTransformerEncoder(
         The function to encode the (m/z, intensity) tuples of each mass
         spectrum. `True` uses the default sinusoidal encoding and `False`
         instead performs a 1 to `d_model` learned linear projection.
+    attention_backend : str, optional
+        Attention implementation: "sdpa" (default), "flex", or "natvie".
 
     Attributes
     ----------
@@ -52,6 +54,7 @@ class SpectrumTransformerEncoder(
     transformer_encoder : depthcharge.transformers.TransformerEncoder
         The Transformer encoder layers.
 
+
     """
 
     def __init__(
@@ -62,6 +65,7 @@ class SpectrumTransformerEncoder(
         n_layers: int = 1,
         dropout: float = 0.0,
         peak_encoder: PeakEncoder | Callable | bool = True,
+        attention_backend: str = "sdpa",
     ) -> None:
         """Initialize a SpectrumEncoder."""
         super().__init__()
@@ -85,7 +89,7 @@ class SpectrumTransformerEncoder(
             dim_feedforward=self.dim_feedforward,
             batch_first=True,
             dropout=self.dropout,
-            attention_backend="sdpa",
+            attention_backend=attention_backend,
             enable_sdpa_math=True,
             enable_sdpa_mem_efficient=True,
             enable_sdpa_flash_attention=True,
