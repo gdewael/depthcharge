@@ -32,7 +32,7 @@ class TransformerEncoderLayer(nn.Module):
         If True, layer norm is done prior to attention and feedforward
         operations (pre-norm). Otherwise it's done after (post-norm).
     attention_backend : str, optional
-        Attention implementation: "native" (default), "flex", or "sdpa".
+        Attention implementation: "sdpa" (default), "flex", or "native".
     enable_sdpa_math : bool, optional
         If True, enable SDPA math kernel when using "sdpa" backend.
         Default: True
@@ -221,7 +221,7 @@ class TransformerDecoderLayer(nn.Module):
         If True, layer norm is done prior to attention and feedforward
         operations (pre-norm). Otherwise it's done after (post-norm).
     attention_backend : str, optional
-        Attention implementation: "native" (default), "flex", or "sdpa".
+        Attention implementation: "sdpa" (default), "flex", or "natvie".
     enable_sdpa_math : bool, optional
         If True, enable SDPA math kernel when using "sdpa" backend.
         Default: True
