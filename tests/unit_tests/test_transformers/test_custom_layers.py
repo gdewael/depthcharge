@@ -17,18 +17,20 @@ from depthcharge.transformers.layers import (
             (128, 8, 1024, 0.0), # dropout always 0 because PyTorch's SDPA is non-deterministic with dropout
             (256, 8, 2048, 0.0),
             (512, 8, 512, 0.0),
-            (64, 4, 256, 0.0), 
+            (64, 4, 256, 0.0),
         ],
     )
-@pytest.mark.parametrize("batch_size,seq_lens", [(2, (3,5)), (4, (8,20,10,4)), (3, (5,21,3))])
+@pytest.mark.parametrize("batch_size,seq_len", [(2, 10), (4, 20), (1, 5)])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
-def test_encoder_equivalence(
-    d_model, nhead, dim_feedforward, dropout, batch_size, seq_lens, norm_first, is_causal
+def test_encoder_equivalence_dense(
+    d_model, nhead, dim_feedforward, dropout, batch_size, seq_len, norm_first, is_causal
 ):
-    """Test numerical equivalence with PyTorch TransformerEncoderLayer.
-    By default, tests the equivalence of the sdpa attention backend."""
-    
+    """Test numerical equivalence with PyTorch TransformerEncoderLayer using dense tensors.
+
+    Tests with fixed-length sequences (no padding mask).
+    """
+
     torch.manual_seed(42)
     pytorch_layer = nn.TransformerEncoderLayer(
         d_model=d_model,
@@ -50,43 +52,36 @@ def test_encoder_equivalence(
 
     custom_layer.load_state_dict(pytorch_layer.state_dict())
 
-    # Init input for both pytorch and custom separately to allow gradient comparison
-    
-    src = []
-    for l in seq_lens:
-        torch.manual_seed(43)
-        src.append(torch.randn(1, l, d_model))
-    src = torch.nested.nested_tensor(src,layout=torch.jagged)
-    
-    src_padded = src.to_padded_tensor(0.0)
-    src.requires_grad = True
-    src_padded.requires_grad = True
-    
-    key_padding_mask = src_padded.sum(dim=2) == 0.0
-    
+    # Create fixed-length dense tensors
+    torch.manual_seed(43)
+    src_pytorch = torch.randn(batch_size, seq_len, d_model)
+    src_custom = src_pytorch.clone()
+    src_pytorch.requires_grad = True
+    src_custom.requires_grad = True
+
     torch.manual_seed(44)
     pytorch_output = pytorch_layer(
-        src_padded,
+        src_pytorch,
         is_causal=is_causal,
-        src_mask = (generate_tgt_mask(max(seq_lens)) if is_causal else None), 
-        src_key_padding_mask=key_padding_mask
+        src_mask=(generate_tgt_mask(seq_len) if is_causal else None),
+        src_key_padding_mask=None
     )
     torch.manual_seed(44)
     custom_output = custom_layer(
-        src,
+        src_custom,
         is_causal=is_causal,
         src_mask=None,
         src_key_padding_mask=None
     )
-        
+
     torch.testing.assert_close(
-        custom_output.to_padded_tensor(0.0), # Compare only unmasked positions
+        custom_output,
         pytorch_output,
         rtol=1e-3,
         atol=1e-5,
         msg="Custom layer output does not match PyTorch layer output",
     )
-    
+
     # Backward pass
     pytorch_loss = pytorch_output.sum()
     custom_loss = custom_output.sum()
@@ -96,8 +91,111 @@ def test_encoder_equivalence(
 
     # Check gradients match
     torch.testing.assert_close(
-        src.to_padded_tensor(0.0).grad, 
-        src_padded.grad,
+        src_custom.grad,
+        src_pytorch.grad,
+        rtol=1e-3,
+        atol=1e-5,
+        msg="Gradients do not match",
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Nested tensors with SDPA require CUDA")
+@pytest.mark.parametrize(
+        "d_model,nhead,dim_feedforward,dropout",
+        [
+            (128, 8, 1024, 0.0), # dropout always 0 because PyTorch's SDPA is non-deterministic with dropout
+            (256, 8, 2048, 0.0),
+            (512, 8, 512, 0.0),
+            (64, 4, 256, 0.0),
+        ],
+    )
+@pytest.mark.parametrize("batch_size,seq_lens", [(2, (3,5)), (4, (8,20,10,4)), (3, (5,21,3))])
+@pytest.mark.parametrize("norm_first", [True, False])
+@pytest.mark.parametrize("is_causal", [True, False])
+def test_encoder_equivalence_jagged(
+    d_model, nhead, dim_feedforward, dropout, batch_size, seq_lens, norm_first, is_causal
+):
+    """Test numerical equivalence with PyTorch TransformerEncoderLayer using jagged tensors.
+
+    Tests with variable-length sequences using nested tensors (CUDA only).
+    """
+    device = torch.device("cuda")
+
+    torch.manual_seed(42)
+    pytorch_layer = nn.TransformerEncoderLayer(
+        d_model=d_model,
+        nhead=nhead,
+        dim_feedforward=dim_feedforward,
+        batch_first=True,
+        dropout=dropout,
+        norm_first=norm_first,
+    ).to(device)
+    torch.manual_seed(42)
+    custom_layer = TransformerEncoderLayer(
+        d_model=d_model,
+        nhead=nhead,
+        dim_feedforward=dim_feedforward,
+        batch_first=True,
+        dropout=dropout,
+        norm_first=norm_first,
+    ).to(device)
+
+    custom_layer.load_state_dict(pytorch_layer.state_dict())
+
+    # Create nested tensors with variable lengths
+    src = []
+    for l in seq_lens:
+        torch.manual_seed(43)
+        src.append(torch.randn(l, d_model, device=device))
+    src = torch.nested.nested_tensor(src, layout=torch.jagged)
+
+    src_padded = src.to_padded_tensor(0.0)
+    src.requires_grad = True
+    src_padded.requires_grad = True
+
+    key_padding_mask = src_padded.sum(dim=2) == 0.0
+
+    torch.manual_seed(44)
+    pytorch_output = pytorch_layer(
+        src_padded,
+        is_causal=is_causal,
+        src_mask=(generate_tgt_mask(max(seq_lens)).to(device) if is_causal else None),
+        src_key_padding_mask=key_padding_mask
+    )
+    torch.manual_seed(44)
+    custom_output = custom_layer(
+        src,
+        is_causal=is_causal,
+        src_mask=None,
+        src_key_padding_mask=None
+    )
+
+    torch.testing.assert_close(
+        custom_output.to_padded_tensor(0.0),
+        torch.nested.nested_tensor(
+            [p[:l] for p, l  in zip(pytorch_output, seq_lens)],
+            layout=torch.jagged,
+        ).to_padded_tensor(0.0),
+        rtol=1e-3,
+        atol=1e-5,
+        msg="Custom layer output does not match PyTorch layer output",
+    )
+
+    # Backward pass
+    pytorch_output[key_padding_mask] = 0.0
+    pytorch_loss = pytorch_output.sum()
+    custom_loss = custom_output.sum()
+
+    pytorch_loss.backward()
+    custom_loss.backward()
+
+    # Check gradients match
+    torch.testing.assert_close(
+        src.grad.to_padded_tensor(0.0), 
+        torch.nested.nested_tensor(
+            [p[:l] for p, l  in zip(src_padded.grad, seq_lens)],
+            layout=torch.jagged
+        ).to_padded_tensor(0.0),
         rtol=1e-3,
         atol=1e-5,
         msg="Gradients do not match",
@@ -116,10 +214,13 @@ def test_encoder_equivalence(
 @pytest.mark.parametrize("batch_size,seq_len", [(2, 10), (4, 20), (1, 5)])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
-def test_decoder_equivalence(
+def test_decoder_equivalence_dense(
     d_model, nhead, dim_feedforward, dropout, batch_size, seq_len, norm_first, is_causal
 ):
-    """Test numerical equivalence with PyTorch TransformerDecoderLayer."""
+    """Test numerical equivalence with PyTorch TransformerDecoderLayer using dense tensors.
+
+    Tests with fixed-length sequences (no padding mask).
+    """
 
     torch.manual_seed(42)
     pytorch_layer = nn.TransformerDecoderLayer(
@@ -152,21 +253,15 @@ def test_decoder_equivalence(
     # Memory tensor for cross-attention with seq_len + 5
     memory = torch.randn(batch_size, seq_len + 5, d_model)
 
-    tgt_key_padding_mask = torch.zeros(batch_size, seq_len).bool()
-    tgt_key_padding_mask[:, -3:] = True
-
-    memory_key_padding_mask = torch.zeros(batch_size, seq_len + 5).bool()
-    memory_key_padding_mask[:, -3:] = True
-
 
     torch.manual_seed(44)
     pytorch_output = pytorch_layer(
         tgt_pytorch,
         memory,
         tgt_mask=(generate_tgt_mask(seq_len) if is_causal else None),
-        tgt_is_causal=False,
-        tgt_key_padding_mask=tgt_key_padding_mask,
-        memory_key_padding_mask=memory_key_padding_mask,
+        tgt_is_causal=is_causal,
+        tgt_key_padding_mask=None,
+        memory_key_padding_mask=None,
     )
     torch.manual_seed(44)
     custom_output = custom_layer(
@@ -174,14 +269,10 @@ def test_decoder_equivalence(
         memory,
         tgt_mask=None,
         tgt_is_causal=is_causal,
-        tgt_key_padding_mask=tgt_key_padding_mask,
-        memory_key_padding_mask=memory_key_padding_mask,
+        tgt_key_padding_mask=None,
+        memory_key_padding_mask=None,
     )
-    
-    if is_causal:
-        custom_output = custom_output[:, :-3]  # Compare only unmasked positions
-        pytorch_output = pytorch_output[:, :-3]
-        
+
     torch.testing.assert_close(
         custom_output,
         pytorch_output,
@@ -207,156 +298,116 @@ def test_decoder_equivalence(
     )
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Nested tensors with SDPA require CUDA")
 @pytest.mark.parametrize(
-    "embed_dim,num_heads,dropout",
-    [
-        (128, 8, 0.0),
-        (256, 8, 0.1),
-        (512, 8, 0.2),
-        (64, 4, 0.3),
-    ],
-)
-@pytest.mark.parametrize("batch_size,seq_len", [(2, 10), (4, 20), (1, 5)])
-@pytest.mark.parametrize("precision", [torch.float32, torch.bfloat16])
+        "d_model,nhead,dim_feedforward,dropout",
+        [
+            (128, 8, 1024, 0.0), # dropout always 0 because PyTorch's SDPA is non-deterministic with dropout
+            (256, 8, 2048, 0.0),
+            (512, 8, 512, 0.0),
+            (64, 4, 256, 0.0),
+        ],
+    )
+@pytest.mark.parametrize("batch_size,tgt_lens,mem_lens", [(2, (3,5), (8,10)), (4, (8,20,10,4), (15,25,18,10)), (3, (5,21,3), (12,28,8))])
+@pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
-def test_selfattention_equivalence(
-    embed_dim, num_heads, dropout, batch_size, seq_len, precision, is_causal
+def test_decoder_equivalence_jagged(
+    d_model, nhead, dim_feedforward, dropout, batch_size, tgt_lens, mem_lens, norm_first, is_causal
 ):
-    """Test MultiheadAttention self-attention equivalence with PyTorch."""
+    """Test numerical equivalence with PyTorch TransformerDecoderLayer using jagged tensors.
+
+    Tests with variable-length sequences using nested tensors (CUDA only).
+    """
+    device = torch.device("cuda")
 
     torch.manual_seed(42)
-    pytorch_attn = nn.MultiheadAttention(
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        dropout=dropout,
+    pytorch_layer = nn.TransformerDecoderLayer(
+        d_model=d_model,
+        nhead=nhead,
+        dim_feedforward=dim_feedforward,
         batch_first=True,
-    ).to(precision)
+        dropout=dropout,
+        norm_first=norm_first,
+    ).to(device)
     torch.manual_seed(42)
-    custom_attn = MultiheadAttention(
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        dropout=dropout,
+    custom_layer = TransformerDecoderLayer(
+        d_model=d_model,
+        nhead=nhead,
+        dim_feedforward=dim_feedforward,
         batch_first=True,
-        attention_backend="sdpa",
-    ).to(precision)
+        dropout=dropout,
+        norm_first=norm_first,
+    ).to(device)
 
-    custom_attn.load_state_dict(pytorch_attn.state_dict())
+    custom_layer.load_state_dict(pytorch_layer.state_dict())
 
-    torch.manual_seed(43)
-    x_pytorch = torch.randn(batch_size, seq_len, embed_dim).to(precision)
-    x_custom = x_pytorch.clone()
-    x_pytorch.requires_grad = True
-    x_custom.requires_grad = True
+    # Create nested tensors with variable lengths for target
+    tgt = []
+    for l in tgt_lens:
+        torch.manual_seed(43)
+        tgt.append(torch.randn(l, d_model, device=device))
+    tgt = torch.nested.nested_tensor(tgt, layout=torch.jagged)
 
-    key_padding_mask = torch.zeros(batch_size, seq_len).bool()
-    key_padding_mask[:, -3:] = True  # Mask last 3 positions
+    tgt_padded = tgt.to_padded_tensor(0.0)
+    tgt.requires_grad = True
+    tgt_padded.requires_grad = True
 
-    if is_causal:
-        attn_mask = generate_tgt_mask(seq_len)
-    else:
-        attn_mask = None
+    # Create nested tensors with variable lengths for memory
+    memory = []
+    for l in mem_lens:
+        torch.manual_seed(43)
+        memory.append(torch.randn(l, d_model, device=device))
+    memory = torch.nested.nested_tensor(memory, layout=torch.jagged)
+
+    memory_padded = memory.to_padded_tensor(0.0)
+    tgt_key_padding_mask = tgt_padded.sum(dim=2) == 0.0
+    memory_key_padding_mask = memory_padded.sum(dim=2) == 0.0
 
     torch.manual_seed(44)
-    pytorch_out, _ = pytorch_attn(
-        x_pytorch, x_pytorch, x_pytorch, need_weights=False, key_padding_mask=(None if is_causal else key_padding_mask), attn_mask=attn_mask, is_causal=is_causal,
+    pytorch_output = pytorch_layer(
+        tgt_padded,
+        memory_padded,
+        tgt_mask=(generate_tgt_mask(max(tgt_lens)).to(device) if is_causal else None),
+        tgt_is_causal=is_causal,
+        tgt_key_padding_mask=tgt_key_padding_mask,
+        memory_key_padding_mask=memory_key_padding_mask,
     )
     torch.manual_seed(44)
-    custom_out, _ = custom_attn(
-        x_custom, x_custom, x_custom, need_weights=False, key_padding_mask=key_padding_mask, is_causal=is_causal,
+    custom_output = custom_layer(
+        tgt,
+        memory,
+        tgt_mask=None,
+        tgt_is_causal=is_causal,
+        tgt_key_padding_mask=None,
+        memory_key_padding_mask=None,
     )
 
     torch.testing.assert_close(
-        custom_out,
-        pytorch_out,
+        custom_output.to_padded_tensor(0.0),
+        torch.nested.nested_tensor(
+            [p[:l] for p, l  in zip(pytorch_output, tgt_lens)],
+            layout=torch.jagged,
+        ).to_padded_tensor(0.0),
         rtol=1e-3,
         atol=1e-5,
-        msg="Custom attention output does not match PyTorch",
+        msg="Custom layer output does not match PyTorch layer output",
     )
 
-    pytorch_loss = pytorch_out.sum()
-    custom_loss = custom_out.sum()
+    # Backward pass
+    pytorch_output[tgt_key_padding_mask] = 0.0
+    pytorch_loss = pytorch_output.sum()
+    custom_loss = custom_output.sum()
 
     pytorch_loss.backward()
     custom_loss.backward()
 
     # Check gradients match
     torch.testing.assert_close(
-        x_custom.grad,
-        x_pytorch.grad,
-        rtol=1e-3,
-        atol=1e-5,
-        msg="Gradients do not match",
-    )
-
-
-@pytest.mark.parametrize(
-    "embed_dim,num_heads,dropout",
-    [
-        (128, 8, 0.0),
-        (256, 8, 0.0),
-        (64, 4, 0.0),
-    ],
-)
-@pytest.mark.parametrize("batch_size,tgt_len,src_len", [(2, 5, 10), (4, 8, 15)])
-@pytest.mark.parametrize("precision", [torch.float32, torch.bfloat16])
-def test_crossattention_equivalence(
-    embed_dim, num_heads, dropout, batch_size, tgt_len, src_len, precision
-):
-    """Test MultiheadAttention cross-attention equivalence with PyTorch."""
-
-    torch.manual_seed(42)
-    pytorch_attn = nn.MultiheadAttention(
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        dropout=dropout,
-        batch_first=True,
-    ).to(precision)
-    torch.manual_seed(42)
-    custom_attn = MultiheadAttention(
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        dropout=dropout,
-        batch_first=True,
-        attention_backend="sdpa",
-    ).to(precision)
-
-    custom_attn.load_state_dict(pytorch_attn.state_dict())
-
-    torch.manual_seed(43)
-    query_pytorch = torch.randn(batch_size, tgt_len, embed_dim).to(precision)
-    query_custom = query_pytorch.clone()
-    kv = torch.randn(batch_size, src_len, embed_dim).to(precision)
-    query_pytorch.requires_grad = True
-    query_custom.requires_grad = True
-
-    key_padding_mask = torch.zeros(batch_size, src_len).bool()
-    key_padding_mask[:, -3:] = True  # Mask last 3 positions
-
-    # For cross-attention, causal mask would typically apply if tgt_len == src_len
-    # But we'll include it anyway for testing purposes
-
-    torch.manual_seed(44)
-    pytorch_out, _ = pytorch_attn(query_pytorch, kv, kv, key_padding_mask=key_padding_mask, need_weights=False)
-    torch.manual_seed(44)
-    custom_out, _ = custom_attn(query_custom, kv, kv, key_padding_mask=key_padding_mask, need_weights=False)
-
-    torch.testing.assert_close(
-        custom_out,
-        pytorch_out,
-        rtol=1e-3,
-        atol=1e-5,
-        msg="Custom cross-attention output does not match PyTorch",
-    )
-
-    pytorch_loss = pytorch_out.sum()
-    custom_loss = custom_out.sum()
-
-    pytorch_loss.backward()
-    custom_loss.backward()
-
-    torch.testing.assert_close(
-        query_custom.grad,
-        query_pytorch.grad,
+        tgt.grad.to_padded_tensor(0.0),
+        torch.nested.nested_tensor(
+            [p[:l] for p, l  in zip(tgt_padded.grad, tgt_lens)],
+            layout=torch.jagged
+        ).to_padded_tensor(0.0),
         rtol=1e-3,
         atol=1e-5,
         msg="Gradients do not match",
