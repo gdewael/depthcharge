@@ -147,6 +147,12 @@ class TransformerEncoderLayer(nn.Module):
             The output of the encoder layer. Same layout as inputs (dense or nested).
 
         """
+        is_nested = src.is_nested if hasattr(src, 'is_nested') else False
+        if is_nested:
+            assert isinstance(self.self_attn, MultiheadAttention), (
+                "Nested tensors require the 'sdpa' attention backend."
+            )
+        
         if self.norm_first:
             # Pre-norm architecture
             src = src + self._sa_block(
@@ -368,6 +374,12 @@ class TransformerDecoderLayer(nn.Module):
             The output of the decoder layer. Same layout as tgt (dense or nested).
 
         """
+        is_nested = tgt.is_nested if hasattr(tgt, 'is_nested') else False
+        if is_nested:
+            assert isinstance(self.self_attn, MultiheadAttention), (
+                "Nested tensors require the 'sdpa' attention backend."
+            )
+            
         if self.norm_first:
             # Pre-norm architecture
             tgt = tgt + self._sa_block(

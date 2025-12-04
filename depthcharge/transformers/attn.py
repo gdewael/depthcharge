@@ -151,9 +151,6 @@ class MultiheadAttention(nn.Module):
         ), """
         attn_mask should not be used with scaled_dot_product_attention.
         """
-        
-        # Check if inputs are nested tensors
-        is_nested = query.is_nested if hasattr(query, 'is_nested') else False
 
         # Apply input projections
         if query is key and key is value: # self-attention case

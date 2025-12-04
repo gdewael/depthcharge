@@ -128,10 +128,9 @@ def test_encoder_equivalence_dense(
 @pytest.mark.parametrize("batch_size,seq_lens", [(2, (3,5)), (4, (8,20,10,4)), (3, (5,21,3))])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
-@pytest.mark.parametrize("backend", ["sdpa", "native"])
 @pytest.mark.parametrize("activation", ["relu", "gelu"])
 def test_encoder_equivalence_jagged(
-    d_model, nhead, dim_feedforward, dropout, batch_size, seq_lens, norm_first, is_causal, backend, activation
+    d_model, nhead, dim_feedforward, dropout, batch_size, seq_lens, norm_first, is_causal, activation
 ):
     """Test numerical equivalence with PyTorch TransformerEncoderLayer using jagged tensors.
 
@@ -162,7 +161,6 @@ def test_encoder_equivalence_jagged(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
-        attention_backend=backend,
         activation=activation,
     )
     custom_transformer = TransformerEncoder(
@@ -196,7 +194,7 @@ def test_encoder_equivalence_jagged(
     custom_output = custom_transformer(
         src,
         is_causal=is_causal,
-        src_mask=None,
+        mask=None,
         src_key_padding_mask=None
     )
 
@@ -355,10 +353,9 @@ def test_decoder_equivalence_dense(
 @pytest.mark.parametrize("batch_size,tgt_lens,mem_lens", [(2, (3,5), (8,10)), (4, (8,20,10,4), (15,25,18,10)), (3, (5,21,3), (12,28,8))])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
-@pytest.mark.parametrize("backend", ["sdpa", "native"])
 @pytest.mark.parametrize("activation", ["relu", "gelu"])
 def test_decoder_equivalence_jagged(
-    d_model, nhead, dim_feedforward, dropout, batch_size, tgt_lens, mem_lens, norm_first, is_causal, backend, activation
+    d_model, nhead, dim_feedforward, dropout, batch_size, tgt_lens, mem_lens, norm_first, is_causal, activation
 ):
     """Test numerical equivalence with PyTorch TransformerDecoderLayer using jagged tensors.
 
@@ -389,10 +386,9 @@ def test_decoder_equivalence_jagged(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
-        attention_backend=backend,
         activation=activation,
     )
-    custom_transformer = TransformerEncoder(
+    custom_transformer = TransformerDecoder(
         custom_layer,
         num_layers=2,
     ).to(device)
