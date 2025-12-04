@@ -8,6 +8,8 @@ from depthcharge.transformers import MultiheadAttention
 from depthcharge.transformers.layers import (
     TransformerEncoderLayer,
     TransformerDecoderLayer,
+    TransformerEncoder,
+    TransformerDecoder,
 )
         
 
@@ -23,8 +25,10 @@ from depthcharge.transformers.layers import (
 @pytest.mark.parametrize("batch_size,seq_len", [(2, 10), (4, 20), (1, 5)])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
+@pytest.mark.parametrize("backend", ["sdpa", "native"])
+@pytest.mark.parametrize("activation", ["relu", "gelu"])
 def test_encoder_equivalence_dense(
-    d_model, nhead, dim_feedforward, dropout, batch_size, seq_len, norm_first, is_causal
+    d_model, nhead, dim_feedforward, dropout, batch_size, seq_len, norm_first, is_causal, backend, activation
 ):
     """Test numerical equivalence with PyTorch TransformerEncoderLayer using dense tensors.
 
@@ -39,7 +43,13 @@ def test_encoder_equivalence_dense(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
+        activation=activation,
     )
+    pytorch_transformer = nn.TransformerEncoder(
+        pytorch_layer,
+        num_layers=2,
+    )
+    
     torch.manual_seed(42)
     custom_layer = TransformerEncoderLayer(
         d_model=d_model,
@@ -48,9 +58,15 @@ def test_encoder_equivalence_dense(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
+        attention_backend=backend,
+        activation=activation,
+    )
+    custom_transformer = TransformerEncoder(
+        custom_layer,
+        num_layers=2,
     )
 
-    custom_layer.load_state_dict(pytorch_layer.state_dict())
+    custom_transformer.load_state_dict(pytorch_transformer.state_dict())
 
     # Create fixed-length dense tensors
     torch.manual_seed(43)
@@ -60,17 +76,17 @@ def test_encoder_equivalence_dense(
     src_custom.requires_grad = True
 
     torch.manual_seed(44)
-    pytorch_output = pytorch_layer(
+    pytorch_output = pytorch_transformer(
         src_pytorch,
         is_causal=is_causal,
-        src_mask=(generate_tgt_mask(seq_len) if is_causal else None),
+        mask=(generate_tgt_mask(seq_len) if is_causal else None),
         src_key_padding_mask=None
     )
     torch.manual_seed(44)
-    custom_output = custom_layer(
+    custom_output = custom_transformer(
         src_custom,
         is_causal=is_causal,
-        src_mask=None,
+        mask=None,
         src_key_padding_mask=None
     )
 
@@ -112,8 +128,10 @@ def test_encoder_equivalence_dense(
 @pytest.mark.parametrize("batch_size,seq_lens", [(2, (3,5)), (4, (8,20,10,4)), (3, (5,21,3))])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
+@pytest.mark.parametrize("backend", ["sdpa", "native"])
+@pytest.mark.parametrize("activation", ["relu", "gelu"])
 def test_encoder_equivalence_jagged(
-    d_model, nhead, dim_feedforward, dropout, batch_size, seq_lens, norm_first, is_causal
+    d_model, nhead, dim_feedforward, dropout, batch_size, seq_lens, norm_first, is_causal, backend, activation
 ):
     """Test numerical equivalence with PyTorch TransformerEncoderLayer using jagged tensors.
 
@@ -129,7 +147,13 @@ def test_encoder_equivalence_jagged(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
+        activation=activation,
+    )
+    pytorch_transformer = nn.TransformerEncoder(
+        pytorch_layer,
+        num_layers=2,
     ).to(device)
+    
     torch.manual_seed(42)
     custom_layer = TransformerEncoderLayer(
         d_model=d_model,
@@ -138,9 +162,15 @@ def test_encoder_equivalence_jagged(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
+        attention_backend=backend,
+        activation=activation,
+    )
+    custom_transformer = TransformerEncoder(
+        custom_layer,
+        num_layers=2,
     ).to(device)
 
-    custom_layer.load_state_dict(pytorch_layer.state_dict())
+    custom_transformer.load_state_dict(pytorch_transformer.state_dict())
 
     # Create nested tensors with variable lengths
     src = []
@@ -156,14 +186,14 @@ def test_encoder_equivalence_jagged(
     key_padding_mask = src_padded.sum(dim=2) == 0.0
 
     torch.manual_seed(44)
-    pytorch_output = pytorch_layer(
+    pytorch_output = pytorch_transformer(
         src_padded,
         is_causal=is_causal,
-        src_mask=(generate_tgt_mask(max(seq_lens)).to(device) if is_causal else None),
+        mask=(generate_tgt_mask(max(seq_lens)).to(device) if is_causal else None),
         src_key_padding_mask=key_padding_mask
     )
     torch.manual_seed(44)
-    custom_output = custom_layer(
+    custom_output = custom_transformer(
         src,
         is_causal=is_causal,
         src_mask=None,
@@ -214,8 +244,10 @@ def test_encoder_equivalence_jagged(
 @pytest.mark.parametrize("batch_size,seq_len", [(2, 10), (4, 20), (1, 5)])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
+@pytest.mark.parametrize("backend", ["sdpa", "native"])
+@pytest.mark.parametrize("activation", ["relu", "gelu"])
 def test_decoder_equivalence_dense(
-    d_model, nhead, dim_feedforward, dropout, batch_size, seq_len, norm_first, is_causal
+    d_model, nhead, dim_feedforward, dropout, batch_size, seq_len, norm_first, is_causal, backend, activation
 ):
     """Test numerical equivalence with PyTorch TransformerDecoderLayer using dense tensors.
 
@@ -230,7 +262,13 @@ def test_decoder_equivalence_dense(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
+        activation=activation,
     )
+    pytorch_transformer = nn.TransformerDecoder(
+        pytorch_layer,
+        num_layers=2,
+    )
+        
     torch.manual_seed(42)
     custom_layer = TransformerDecoderLayer(
         d_model=d_model,
@@ -239,9 +277,15 @@ def test_decoder_equivalence_dense(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
+        attention_backend=backend,
+        activation=activation,
+    )
+    custom_transformer = TransformerDecoder(
+        custom_layer,
+        num_layers=2,
     )
 
-    custom_layer.load_state_dict(pytorch_layer.state_dict())
+    custom_transformer.load_state_dict(pytorch_transformer.state_dict())
 
     # Init input for both pytorch and custom separately to allow gradient comparison
     torch.manual_seed(43)
@@ -255,7 +299,7 @@ def test_decoder_equivalence_dense(
 
 
     torch.manual_seed(44)
-    pytorch_output = pytorch_layer(
+    pytorch_output = pytorch_transformer(
         tgt_pytorch,
         memory,
         tgt_mask=(generate_tgt_mask(seq_len) if is_causal else None),
@@ -264,7 +308,7 @@ def test_decoder_equivalence_dense(
         memory_key_padding_mask=None,
     )
     torch.manual_seed(44)
-    custom_output = custom_layer(
+    custom_output = custom_transformer(
         tgt_custom,
         memory,
         tgt_mask=None,
@@ -311,8 +355,10 @@ def test_decoder_equivalence_dense(
 @pytest.mark.parametrize("batch_size,tgt_lens,mem_lens", [(2, (3,5), (8,10)), (4, (8,20,10,4), (15,25,18,10)), (3, (5,21,3), (12,28,8))])
 @pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("is_causal", [True, False])
+@pytest.mark.parametrize("backend", ["sdpa", "native"])
+@pytest.mark.parametrize("activation", ["relu", "gelu"])
 def test_decoder_equivalence_jagged(
-    d_model, nhead, dim_feedforward, dropout, batch_size, tgt_lens, mem_lens, norm_first, is_causal
+    d_model, nhead, dim_feedforward, dropout, batch_size, tgt_lens, mem_lens, norm_first, is_causal, backend, activation
 ):
     """Test numerical equivalence with PyTorch TransformerDecoderLayer using jagged tensors.
 
@@ -328,7 +374,13 @@ def test_decoder_equivalence_jagged(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
+        activation=activation,
+    )
+    pytorch_transformer = nn.TransformerDecoder(
+        pytorch_layer,
+        num_layers=2,
     ).to(device)
+    
     torch.manual_seed(42)
     custom_layer = TransformerDecoderLayer(
         d_model=d_model,
@@ -337,9 +389,15 @@ def test_decoder_equivalence_jagged(
         batch_first=True,
         dropout=dropout,
         norm_first=norm_first,
+        attention_backend=backend,
+        activation=activation,
+    )
+    custom_transformer = TransformerEncoder(
+        custom_layer,
+        num_layers=2,
     ).to(device)
 
-    custom_layer.load_state_dict(pytorch_layer.state_dict())
+    custom_transformer.load_state_dict(pytorch_transformer.state_dict())
 
     # Create nested tensors with variable lengths for target
     tgt = []
@@ -364,7 +422,7 @@ def test_decoder_equivalence_jagged(
     memory_key_padding_mask = memory_padded.sum(dim=2) == 0.0
 
     torch.manual_seed(44)
-    pytorch_output = pytorch_layer(
+    pytorch_output = pytorch_transformer(
         tgt_padded,
         memory_padded,
         tgt_mask=(generate_tgt_mask(max(tgt_lens)).to(device) if is_causal else None),
@@ -373,7 +431,7 @@ def test_decoder_equivalence_jagged(
         memory_key_padding_mask=memory_key_padding_mask,
     )
     torch.manual_seed(44)
-    custom_output = custom_layer(
+    custom_output = custom_transformer(
         tgt,
         memory,
         tgt_mask=None,

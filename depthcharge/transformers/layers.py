@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-
+from ..utils import generate_tgt_mask
 from .attn import MultiheadAttention
 
 
@@ -179,6 +179,10 @@ class TransformerEncoderLayer(nn.Module):
         key_padding_mask: Tensor | None,
         is_causal: bool = False,
     ) -> Tensor:
+        
+        if isinstance(self.self_attn, nn.MultiheadAttention) and is_causal:
+            attn_mask = generate_tgt_mask(x.shape[1])
+        
         x = self.self_attn(
             x,
             x,
@@ -413,6 +417,10 @@ class TransformerDecoderLayer(nn.Module):
         key_padding_mask: Tensor | None,
         is_causal: bool = False,
     ) -> Tensor:
+                
+        if isinstance(self.self_attn, nn.MultiheadAttention) and is_causal:
+            attn_mask = generate_tgt_mask(x.shape[1])
+        
         x = self.self_attn(
             x,
             x,
@@ -433,6 +441,7 @@ class TransformerDecoderLayer(nn.Module):
         key_padding_mask: Tensor | None,
         is_causal: bool = False,
     ) -> Tensor:
+        assert is_causal is False, "Causal cross-attention is not supported."
         x = self.multihead_attn(
             x,
             mem,
