@@ -33,6 +33,9 @@ class TransformerEncoderLayer(nn.Module):
         operations (pre-norm). Otherwise it's done after (post-norm).
     attention_backend : str, optional
         Attention implementation: "sdpa" (default) or "native".
+    rotary_embedding : RotaryEmbedding, optional
+        Rotary position embedding module to apply to Q and K.
+        If None, no rotary embeddings are used. Default: None
     enable_sdpa_math : bool, optional
         If True, enable SDPA math kernel when using "sdpa" backend.
         Default: True
@@ -42,7 +45,7 @@ class TransformerEncoderLayer(nn.Module):
     enable_sdpa_flash_attention : bool, optional
         If True, enable SDPA flash attention kernel when using "sdpa" backend.
         Default: True
-        
+
     """
 
     def __init__(
@@ -56,6 +59,7 @@ class TransformerEncoderLayer(nn.Module):
         norm_first: bool = False,
         batch_first: bool = True,
         attention_backend: str = "sdpa",
+        rotary_embedding: nn.Module | None = None,
         enable_sdpa_math: bool = True,
         enable_sdpa_mem_efficient: bool = True,
         enable_sdpa_flash_attention: bool = True,
@@ -75,6 +79,11 @@ class TransformerEncoderLayer(nn.Module):
         self.attention_backend = attention_backend
 
         if attention_backend == "native":
+            if rotary_embedding is not None:
+                raise ValueError(
+                    "Rotary embeddings are not supported with the native attention backend."
+                )
+                
             self.self_attn = nn.MultiheadAttention(
                 embed_dim=d_model,
                 num_heads=nhead,
@@ -87,6 +96,7 @@ class TransformerEncoderLayer(nn.Module):
                 num_heads=nhead,
                 dropout=dropout,
                 batch_first=True,
+                rotary_embedding=rotary_embedding,
                 enable_sdpa_math=enable_sdpa_math,
                 enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
                 enable_sdpa_flash_attention=enable_sdpa_flash_attention,
@@ -124,6 +134,7 @@ class TransformerEncoderLayer(nn.Module):
         src_mask: Tensor | None = None,
         src_key_padding_mask: Tensor | None = None,
         is_causal: bool = False,
+        positions: Tensor | None = None,
     ) -> Tensor:
         """Pass the input through the encoder layer.
 
@@ -140,6 +151,10 @@ class TransformerEncoderLayer(nn.Module):
             Should always be None.
         is_causal : bool, optional
             If True, applies a causal mask.
+        positions : Tensor, optional
+            Position values for rotary embeddings. If None, uses integer positions.
+            Ignored when RotaryEmbedding is not used.
+            Shape: (batch, seq_len) or (seq_len,) or nested tensor (batch, jagged_seq_len).
 
         Returns
         -------
@@ -160,6 +175,7 @@ class TransformerEncoderLayer(nn.Module):
                 src_mask,
                 src_key_padding_mask,
                 is_causal,
+                positions,
             )
             src = src + self._ff_block(self.norm2(src))
         else:
@@ -171,6 +187,7 @@ class TransformerEncoderLayer(nn.Module):
                     src_mask,
                     src_key_padding_mask,
                     is_causal,
+                    positions,
                 )
             )
             src = self.norm2(src + self._ff_block(src))
@@ -184,11 +201,16 @@ class TransformerEncoderLayer(nn.Module):
         attn_mask: Tensor | None,
         key_padding_mask: Tensor | None,
         is_causal: bool = False,
+        positions: Tensor | None = None,
     ) -> Tensor:
-        
+
         if isinstance(self.self_attn, nn.MultiheadAttention) and is_causal:
             attn_mask = generate_tgt_mask(x.shape[1])
-        
+
+        position_kwargs = (
+            {} if isinstance(self.self_attn, nn.MultiheadAttention)
+            else {"positions" : positions}
+        )
         x = self.self_attn(
             x,
             x,
@@ -197,6 +219,7 @@ class TransformerEncoderLayer(nn.Module):
             key_padding_mask=key_padding_mask,
             need_weights=False,
             is_causal=is_causal,
+            **position_kwargs,
         )[0]
         return self.dropout1(x)
 
@@ -229,6 +252,10 @@ class TransformerDecoderLayer(nn.Module):
         operations (pre-norm). Otherwise it's done after (post-norm).
     attention_backend : str, optional
         Attention implementation: "sdpa" (default) or "native".
+    rotary_embedding : RotaryEmbedding, optional
+        Rotary position embedding module to apply to Q and K in self-attention.
+        If None, no rotary embeddings are used. Note: Only applied to self-attention,
+        not cross-attention. Default: None
     enable_sdpa_math : bool, optional
         If True, enable SDPA math kernel when using "sdpa" backend.
         Default: True
@@ -251,6 +278,7 @@ class TransformerDecoderLayer(nn.Module):
         norm_first: bool = False,
         batch_first: bool = True,
         attention_backend: str = "sdpa",
+        rotary_embedding: nn.Module | None = None,
         enable_sdpa_math: bool = True,
         enable_sdpa_mem_efficient: bool = True,
         enable_sdpa_flash_attention: bool = True,
@@ -277,12 +305,18 @@ class TransformerDecoderLayer(nn.Module):
         }
         
         if attention_backend == "native":
+            if rotary_embedding is not None:
+                raise ValueError(
+                    "Rotary embeddings are not supported with the native attention backend."
+                )
+                
             self.self_attn = nn.MultiheadAttention(
                 **attn_args,
             )
         else:
             self.self_attn = MultiheadAttention(
                 **attn_args,
+                rotary_embedding=rotary_embedding,
                 enable_sdpa_math=enable_sdpa_math,
                 enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
                 enable_sdpa_flash_attention=enable_sdpa_flash_attention,
@@ -338,6 +372,7 @@ class TransformerDecoderLayer(nn.Module):
         memory_key_padding_mask: Tensor | None = None,
         tgt_is_causal: bool = False,
         memory_is_causal: bool = False,
+        tgt_positions: Tensor | None = None,
     ) -> Tensor:
         """Pass the inputs (and mask) through the decoder layer.
 
@@ -367,6 +402,11 @@ class TransformerDecoderLayer(nn.Module):
             If True, applies a causal mask to the sequence to the decoder layer.
         memory_is_causal : bool, optional
             If True, applies a causal mask during cross_attention from memory to targets.
+        tgt_positions : Tensor, optional
+            Position values for rotary embeddings in self-attention on tgt.
+            Ignored when RotaryEmbedding is not used.
+            Not used for cross-attention. If None, uses integer positions.
+            Shape: (batch, tgt_seq_len) or (tgt_seq_len,) or nested tensor (batch, jagged_tgt_seq_len).
 
         Returns
         -------
@@ -387,6 +427,7 @@ class TransformerDecoderLayer(nn.Module):
                 tgt_mask,
                 tgt_key_padding_mask,
                 tgt_is_causal,
+                tgt_positions,
             )
             tgt = tgt + self._mha_block(
                 self.norm2(tgt),
@@ -405,6 +446,7 @@ class TransformerDecoderLayer(nn.Module):
                     tgt_mask,
                     tgt_key_padding_mask,
                     tgt_is_causal,
+                    tgt_positions,
                 )
             )
             tgt = self.norm2(
@@ -428,11 +470,16 @@ class TransformerDecoderLayer(nn.Module):
         attn_mask: Tensor | None,
         key_padding_mask: Tensor | None,
         is_causal: bool = False,
+        positions: Tensor | None = None,
     ) -> Tensor:
-                
+        
         if isinstance(self.self_attn, nn.MultiheadAttention) and is_causal:
             attn_mask = generate_tgt_mask(x.shape[1])
         
+        position_kwargs = (
+            {} if isinstance(self.self_attn, nn.MultiheadAttention)
+            else {"positions" : positions}
+        )
         x = self.self_attn(
             x,
             x,
@@ -441,6 +488,7 @@ class TransformerDecoderLayer(nn.Module):
             key_padding_mask=key_padding_mask,
             need_weights=False,
             is_causal=is_causal,
+            **position_kwargs,
         )[0]
         return self.dropout1(x)
 
@@ -511,6 +559,7 @@ class TransformerEncoder(nn.Module):
         mask: Tensor | None = None,
         src_key_padding_mask: Tensor | None = None,
         is_causal: bool = False,
+        positions: Tensor | None = None,
     ) -> Tensor:
         """Pass the input through the encoder layers in turn.
 
@@ -528,6 +577,10 @@ class TransformerEncoder(nn.Module):
         is_causal : bool, optional
             If True, applies a causal mask as src_mask. Should not be
             provided together with mask.
+        positions : Tensor, optional
+            Position values for rotary embeddings. If None, uses integer positions.
+            Ignored when RotaryEmbedding is not used.
+            Shape: (batch, seq_len) or (seq_len,) or nested tensor (batch, jagged_seq_len).
 
         Returns
         -------
@@ -542,6 +595,7 @@ class TransformerEncoder(nn.Module):
                 src_mask=mask,
                 src_key_padding_mask=src_key_padding_mask,
                 is_causal=is_causal,
+                positions=positions,
             )
 
         if self.norm is not None:
@@ -590,6 +644,7 @@ class TransformerDecoder(nn.Module):
         memory_key_padding_mask: Tensor | None = None,
         tgt_is_causal: bool = False,
         memory_is_causal: bool = False,
+        tgt_positions: Tensor | None = None,
     ) -> Tensor:
         """Pass the inputs (and masks) through the decoder layers in turn.
 
@@ -613,6 +668,11 @@ class TransformerDecoder(nn.Module):
             If True, applies a causal mask as tgt_mask.
         memory_is_causal : bool, optional
             If True, applies a causal mask as memory_mask.
+        tgt_positions : Tensor, optional
+            Position values for rotary embeddings in self-attention on tgt.
+            Ignored when RotaryEmbedding is not used.
+            Not used for cross-attention. If None, uses integer positions.
+            Shape: (batch, tgt_seq_len) or (tgt_seq_len,) or nested tensor (batch, jagged_tgt_seq_len).
 
         Returns
         -------
@@ -632,9 +692,13 @@ class TransformerDecoder(nn.Module):
                 memory_key_padding_mask=memory_key_padding_mask,
                 tgt_is_causal=tgt_is_causal,
                 memory_is_causal=memory_is_causal,
+                tgt_positions=tgt_positions,
             )
 
         if self.norm is not None:
             output = self.norm(output)
 
         return output
+
+
+

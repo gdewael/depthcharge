@@ -159,6 +159,9 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
     padding_int : int, optional
         The index that represents padding in the input sequence. Required
         only if ``n_tokens`` was provided as an ``int``.
+    rotary_embedding : RotaryEmbedding, optional
+        Rotary position embedding module to apply to Q and K in attention.
+        If None, no rotary embeddings are used. Default: None
 
     """
 
@@ -172,6 +175,7 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
         dropout: float = 0,
         positional_encoder: PositionalEncoder | bool = True,
         padding_int: int | None = None,
+        rotary_embedding: torch.nn.Module | None = None,
     ) -> None:
         """Initialize an AnalyteEncoder."""
         super().__init__(
@@ -193,6 +197,7 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
             batch_first=True,
             dropout=self.dropout,
             attention_backend="sdpa",
+            rotary_embedding=rotary_embedding,
             enable_sdpa_math=True,
             enable_sdpa_mem_efficient=True,
             enable_sdpa_flash_attention=True,
@@ -283,6 +288,10 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
     padding_int : int, optional
         The index that represents padding in the input sequence. Required
         only if ``n_tokens`` was provided as an ``int``.
+    rotary_embedding : RotaryEmbedding, optional
+        Rotary position embedding module to apply to Q and K in self-attention.
+        If None, no rotary embeddings are used. Note: Only applied to self-attention,
+        not cross-attention. Default: None
 
     """
 
@@ -296,6 +305,7 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
         dropout: float = 0,
         positional_encoder: PositionalEncoder | bool = True,
         padding_int: int | None = None,
+        rotary_embedding: torch.nn.Module | None = None,
     ) -> None:
         """Initialize a AnalyteDecoder."""
         super().__init__(
@@ -317,6 +327,7 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             batch_first=True,
             dropout=dropout,
             attention_backend="sdpa",
+            rotary_embedding=rotary_embedding,
             enable_sdpa_math=True,
             enable_sdpa_mem_efficient=True,
             enable_sdpa_flash_attention=True,

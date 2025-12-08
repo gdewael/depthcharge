@@ -5,3 +5,4 @@ from .sinusoidal import (
     PeakEncoder,
     PositionalEncoder,
 )
+from .rotary import RotaryEmbedding

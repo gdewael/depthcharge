@@ -26,6 +26,9 @@ class MultiheadAttention(nn.Module):
     batch_first : bool, optional
         If True, input and output tensors are (batch, seq, feature).
         Only batch_first=True is supported. Default: True
+    rotary_embedding : RotaryEmbedding, optional
+        Rotary position embedding module to apply to Q and K.
+        If None, no rotary embeddings are used. Default: None
     enable_sdpa_math : bool, optional
         If True, enable SDPA math kernel. Default: True
     enable_sdpa_mem_efficient : bool, optional
@@ -42,6 +45,7 @@ class MultiheadAttention(nn.Module):
         dropout: float = 0.0,
         bias: bool = True,
         batch_first: bool = True,
+        rotary_embedding: nn.Module | None = None,
         enable_sdpa_math: bool = True,
         enable_sdpa_mem_efficient: bool = True,
         enable_sdpa_flash_attention: bool = True,
@@ -62,7 +66,8 @@ class MultiheadAttention(nn.Module):
         self.num_heads = num_heads
         self.dropout_p = dropout
         self.head_dim = embed_dim // num_heads
-        
+        self.rotary_embedding = rotary_embedding
+
         self.context_manager = []
         if enable_sdpa_math:
             self.context_manager.append(SDPBackend.MATH)
@@ -102,6 +107,7 @@ class MultiheadAttention(nn.Module):
         need_weights: bool = False,
         attn_mask: Tensor | None = None,
         is_causal: bool = False,
+        positions: Tensor | None = None,
     ) -> tuple[Tensor, Tensor | None]:
         """Forward pass of multi-head attention.
 
@@ -131,6 +137,13 @@ class MultiheadAttention(nn.Module):
         is_causal : bool, optional
             If True, apply causal masking (lower triangular). Works with
             both dense and nested tensors. Default: False
+        positions : Tensor, optional
+            Position values for rotary embeddings. Only used if rotary_embedding
+            is configured. If None, uses integer positions. Can be:
+            - (batch, seq_len) for per-sample positions (e.g., m/z values)
+            - (seq_len,) for shared positions
+            - Nested tensor (batch, jagged_seq_len) for jagged sequences
+            Default: None
 
         Returns
         -------
@@ -171,7 +184,11 @@ class MultiheadAttention(nn.Module):
         Q = Q.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
         K = K.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
         V = V.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
-        
+
+        # Apply rotary embeddings
+        if self.rotary_embedding is not None:
+            Q, K = self.rotary_embedding(Q, K, positions=positions)
+
         attn_output = self._sdpa_attention(Q, K, V, is_causal=is_causal)
         
         # [bsz, nhead, seqlen, headdim] -> [bsz, seqlen, embed_dim] 

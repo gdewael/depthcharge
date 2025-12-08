@@ -40,6 +40,9 @@ class SpectrumTransformerEncoder(
         instead performs a 1 to `d_model` learned linear projection.
     attention_backend : str, optional
         Attention implementation: "sdpa" (default) or "native".
+    rotary_embedding : RotaryEmbedding, optional
+        Rotary position embedding module to apply to Q and K in attention.
+        If None, no rotary embeddings are used. Default: None
 
     Attributes
     ----------
@@ -66,6 +69,7 @@ class SpectrumTransformerEncoder(
         dropout: float = 0.0,
         peak_encoder: PeakEncoder | Callable | bool = True,
         attention_backend: str = "sdpa",
+        rotary_embedding: torch.nn.Module | None = None,
     ) -> None:
         """Initialize a SpectrumEncoder."""
         super().__init__()
@@ -90,6 +94,7 @@ class SpectrumTransformerEncoder(
             batch_first=True,
             dropout=self.dropout,
             attention_backend=attention_backend,
+            rotary_embedding=rotary_embedding,
             enable_sdpa_math=True,
             enable_sdpa_mem_efficient=True,
             enable_sdpa_flash_attention=True,
@@ -106,6 +111,7 @@ class SpectrumTransformerEncoder(
         intensity_array: torch.Tensor,
         *args: torch.Tensor,
         mask: torch.Tensor | None = None,
+        global_token_rotary_mz: torch.Tensor | None = None,
         **kwargs: dict,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Embed a batch of mass spectra.
@@ -122,10 +128,14 @@ class SpectrumTransformerEncoder(
         mask : torch.Tensor
             Passed to `torch.nn.TransformerEncoder.forward()`. The mask
             for the sequence.
+        global_token_rotary_mz : torch.Tensor of shape (n_spectra,)
+            The m/z values for the global tokens to be prepended to
+            each spectrum. Only used for rotary embeddings.
         **kwargs : dict
             Additional data fields. These may be used by overwriting
             the `global_token_hook()` method in a subclass.
 
+        
         Returns
         -------
         latent : torch.Tensor of shape (n_spectra, n_peaks + 1, d_model)
@@ -158,10 +168,18 @@ class SpectrumTransformerEncoder(
         )
 
         peaks = torch.cat([latent_spectra[:, None, :], peaks], dim=1)
+
+        if global_token_rotary_mz is not None:
+            global_pos = global_token_rotary_mz[:, None]  # (batch, 1)
+        else:
+            global_pos = torch.zeros((mz_array.shape[0], 1), device=mz_array.device, dtype=mz_array.dtype)
+        positions = torch.cat([global_pos, mz_array], dim=1)
+
         out = self.transformer_encoder(
             peaks,
             mask=mask,
             src_key_padding_mask=src_key_padding_mask,
+            positions=positions,
         )
         return out, src_key_padding_mask
 
