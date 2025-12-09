@@ -70,6 +70,7 @@ class SpectrumTransformerEncoder(
         peak_encoder: PeakEncoder | Callable | bool = True,
         attention_backend: str = "sdpa",
         rotary_embedding: torch.nn.Module | None = None,
+        use_nested = True,
     ) -> None:
         """Initialize a SpectrumEncoder."""
         super().__init__()
@@ -104,6 +105,8 @@ class SpectrumTransformerEncoder(
             layer,
             num_layers=self.n_layers,
         )
+        
+        self.use_nested = use_nested
 
     def forward(
         self,
@@ -175,13 +178,20 @@ class SpectrumTransformerEncoder(
             global_pos = torch.zeros((mz_array.shape[0], 1), device=mz_array.device, dtype=mz_array.dtype)
         positions = torch.cat([global_pos, mz_array], dim=1)
 
+        
+        if self.use_nested:
+            peaks = self._convert_dense_to_nested(peaks, src_key_padding_mask)
+            positions = self._convert_dense_to_nested(positions, src_key_padding_mask)
         out = self.transformer_encoder(
             peaks,
             mask=mask,
-            src_key_padding_mask=src_key_padding_mask,
+            src_key_padding_mask=None if self.use_nested else src_key_padding_mask,
             positions=positions,
         )
-        return out, src_key_padding_mask
+        return (
+            self._convert_nested_to_dense(out, src_key_padding_mask),
+            src_key_padding_mask
+        )
 
     def global_token_hook(
         self,
@@ -222,3 +232,15 @@ class SpectrumTransformerEncoder(
 
         """
         return torch.zeros((mz_array.shape[0], self.d_model)).type_as(mz_array)
+
+    def _convert_dense_to_nested(self, x, pad_mask):
+        return torch.nested.nested_tensor_from_jagged(
+            x[~pad_mask],
+            lengths=(~pad_mask).sum(1)
+        )
+        
+    def _convert_nested_to_dense(self, x, pad_mask):
+        return x.to_padded_tensor(
+            0.0,
+            output_size=(x.size(0), pad_mask.size(1), x.size(-1))
+        )

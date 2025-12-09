@@ -201,11 +201,11 @@ def test_spectrumencoder_jagged():
         dim_feedforward=512,
         dropout=0.0,
         rotary_embedding=RotaryEmbedding(head_dim=16),
-    )
+    ).to("cuda")
     torch.manual_seed(43)
-    mz_array = torch.rand(8, 15)
+    mz_array = torch.rand(8, 15).to("cuda")
     torch.manual_seed(44)
-    int_array = torch.rand(8, 15) * 1_000 + 50
+    int_array = (torch.rand(8, 15) * 1_000 + 50).to("cuda")
 
     result = model(mz_array, int_array)
     
