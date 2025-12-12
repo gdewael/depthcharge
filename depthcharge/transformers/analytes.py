@@ -4,11 +4,15 @@ import warnings
 
 import torch
 
-from .. import utils
 from ..encoders import PositionalEncoder
 from ..mixins import ModelMixin, TransformerMixin
 from ..tokenizers import Tokenizer
-from .layers import TransformerEncoder, TransformerEncoderLayer, TransformerDecoder, TransformerDecoderLayer
+from .layers import (
+    TransformerDecoder,
+    TransformerDecoderLayer,
+    TransformerEncoder,
+    TransformerEncoderLayer,
+)
 
 
 class _AnalyteTransformer(torch.nn.Module, ModelMixin, TransformerMixin):
@@ -133,14 +137,12 @@ class _AnalyteTransformer(torch.nn.Module, ModelMixin, TransformerMixin):
 
     def _convert_dense_to_nested(self, x, pad_mask):
         return torch.nested.nested_tensor_from_jagged(
-            x[~pad_mask],
-            lengths=(~pad_mask).sum(1)
+            x[~pad_mask], lengths=(~pad_mask).sum(1)
         )
 
     def _convert_nested_to_dense(self, x, pad_mask):
         return x.to_padded_tensor(
-            0.0,
-            output_size=(x.size(0), pad_mask.size(1), x.size(-1))
+            0.0, output_size=(x.size(0), pad_mask.size(1), x.size(-1))
         )
 
 
@@ -171,9 +173,12 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
     padding_int : int, optional
         The index that represents padding in the input sequence. Required
         only if ``n_tokens`` was provided as an ``int``.
+    attention_backend : str, optional
+        Attention implementation: "sdpa" (default) or "native".
     rotary_embedding : RotaryEmbedding, optional
-        Rotary position embedding module to apply to Q and K in attention.
-        If None, no rotary embeddings are used. Default: None
+        Rotary position embedding module to apply to Q and K in self-attention.
+        Only compatible with `attention_backend="sdpa"`.
+        If ``None``, no rotary embeddings are used.
 
     """
 
@@ -187,8 +192,8 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
         dropout: float = 0,
         positional_encoder: PositionalEncoder | bool = True,
         padding_int: int | None = None,
+        attention_backend: str = "sdpa",
         rotary_embedding: torch.nn.Module | None = None,
-        use_nested: bool = True,
     ) -> None:
         """Initialize an AnalyteEncoder."""
         super().__init__(
@@ -209,7 +214,7 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
             dim_feedforward=self.dim_feedforward,
             batch_first=True,
             dropout=self.dropout,
-            attention_backend="sdpa",
+            attention_backend=attention_backend,
             rotary_embedding=rotary_embedding,
             enable_sdpa_math=True,
             enable_sdpa_mem_efficient=True,
@@ -220,8 +225,6 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
             layer,
             num_layers=n_layers,
         )
-
-        self.use_nested = use_nested
 
     def forward(
         self,
@@ -265,9 +268,6 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
         src_key_padding_mask = ~encoded.sum(dim=2).bool()
         src_key_padding_mask[:, 0] = False
 
-        if self.use_nested:
-            encoded = self._convert_dense_to_nested(encoded, src_key_padding_mask)
-        
         # Add positional encodings
         encoded = self.positional_encoder(encoded)
 
@@ -275,13 +275,9 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
         latent = self.transformer_encoder(
             encoded,
             mask=mask,
-            src_key_padding_mask=None if self.use_nested else src_key_padding_mask,
+            src_key_padding_mask=src_key_padding_mask,
         )
-
-        return (
-            self._convert_nested_to_dense(latent, src_key_padding_mask) if self.use_nested else latent,
-            src_key_padding_mask
-        )
+        return latent, src_key_padding_mask
 
 
 class AnalyteTransformerDecoder(_AnalyteTransformer):
@@ -310,10 +306,12 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
     padding_int : int, optional
         The index that represents padding in the input sequence. Required
         only if ``n_tokens`` was provided as an ``int``.
+    attention_backend : str, optional
+        Attention implementation: "sdpa" (default) or "native".
     rotary_embedding : RotaryEmbedding, optional
         Rotary position embedding module to apply to Q and K in self-attention.
-        If None, no rotary embeddings are used. Note: Only applied to self-attention,
-        not cross-attention. Default: None
+        Only compatible with `attention_backend="sdpa"`.
+        If ``None``, no rotary embeddings are used.
 
     """
 
@@ -327,8 +325,8 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
         dropout: float = 0,
         positional_encoder: PositionalEncoder | bool = True,
         padding_int: int | None = None,
+        attention_backend: str = "sdpa",
         rotary_embedding: torch.nn.Module | None = None,
-        use_nested: bool = True,
     ) -> None:
         """Initialize a AnalyteDecoder."""
         super().__init__(
@@ -349,7 +347,7 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             dim_feedforward=dim_feedforward,
             batch_first=True,
             dropout=dropout,
-            attention_backend="sdpa",
+            attention_backend=attention_backend,
             rotary_embedding=rotary_embedding,
             enable_sdpa_math=True,
             enable_sdpa_mem_efficient=True,
@@ -365,8 +363,6 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             d_model,
             self.token_encoder.num_embeddings - 1,
         )
-
-        self.use_nested = use_nested
 
     def embed(
         self,
@@ -430,31 +426,18 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
         tgt_key_padding_mask = encoded.sum(axis=2) == 0
         tgt_key_padding_mask[:, 0] = False
 
-        # Convert to nested if enabled
-        if self.use_nested:
-            encoded = self._convert_dense_to_nested(encoded, tgt_key_padding_mask)
-        
         # Feed through model:
         encoded = self.positional_encoder(encoded)
-
-        if tgt_mask is None:
-            tgt_mask = utils.generate_tgt_mask(encoded.shape[1]).to(
-                self.device
-            )
 
         output = self.transformer_decoder(
             tgt=encoded,
             memory=memory,
             tgt_mask=tgt_mask,
             tgt_is_causal=True,
-            tgt_key_padding_mask=None if self.use_nested else tgt_key_padding_mask,
+            tgt_key_padding_mask=tgt_key_padding_mask,
             memory_key_padding_mask=memory_key_padding_mask,
             memory_mask=memory_mask,
         )
-
-        # Convert back to dense if needed
-        if self.use_nested:
-            output = self._convert_nested_to_dense(output, tgt_key_padding_mask)
 
         return output
 

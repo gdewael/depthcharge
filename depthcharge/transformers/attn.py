@@ -6,7 +6,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn.attention import sdpa_kernel, SDPBackend
+from torch.nn.attention import SDPBackend, sdpa_kernel
+
+from ..utils import generate_tgt_mask
 
 
 class MultiheadAttention(nn.Module):
@@ -24,8 +26,8 @@ class MultiheadAttention(nn.Module):
     bias : bool, optional
         If True, add bias to input/output projections. Default: True
     batch_first : bool, optional
-        If True, input and output tensors are (batch, seq, feature).
-        Only batch_first=True is supported. Default: True
+        Placeholder for API compatibility.
+        Should always be True.
     rotary_embedding : RotaryEmbedding, optional
         Rotary position embedding module to apply to Q and K.
         If None, no rotary embeddings are used. Default: None
@@ -61,7 +63,6 @@ class MultiheadAttention(nn.Module):
             embed_dim % num_heads == 0
         ), f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
 
-
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.dropout_p = dropout
@@ -77,14 +78,20 @@ class MultiheadAttention(nn.Module):
             self.context_manager.append(SDPBackend.EFFICIENT_ATTENTION)
 
         self.use_context_manager = not all(
-            [enable_sdpa_math, enable_sdpa_flash_attention, enable_sdpa_mem_efficient]
+            [
+                enable_sdpa_math,
+                enable_sdpa_flash_attention,
+                enable_sdpa_mem_efficient,
+            ]
         )
 
-        self.in_proj_weight = nn.Parameter(torch.empty(3 * embed_dim, embed_dim))
+        self.in_proj_weight = nn.Parameter(
+            torch.empty(3 * embed_dim, embed_dim)
+        )
         if bias:
             self.in_proj_bias = nn.Parameter(torch.empty(3 * embed_dim))
         else:
-            self.register_parameter('in_proj_bias', None)
+            self.register_parameter("in_proj_bias", None)
 
         # Output projection
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
@@ -116,34 +123,29 @@ class MultiheadAttention(nn.Module):
 
         Parameters
         ----------
-        query : Tensor or NestedTensor
-            Query embeddings. For dense: (batch, tgt_len, embed_dim).
-            For nested: variable-length sequences without padding.
-        key : Tensor or NestedTensor
-            Key embeddings. For dense: (batch, src_len, embed_dim).
-            For nested: variable-length sequences without padding.
+        query : Tensor
+            Query embeddings. Shape: (batch, tgt_len, embed_dim).
+        key : Tensor
+            Key embeddings. Shape: (batch, src_len, embed_dim).
         value : Tensor or NestedTensor
-            Value embeddings. For dense: (batch, src_len, embed_dim).
-            For nested: variable-length sequences without padding.
+            Value embeddings. Shape: (batch, src_len, embed_dim).
         key_padding_mask : Tensor, optional
-            Placeholder for compatibility with torch.nn.MultiheadAttention.
-            Should always be None.
-        attn_mask : Tensor, optional
-            Placeholder for compatibility with torch.nn.MultiheadAttention.
-            Should always be None.
+            If specified, a mask of shape (batch, src_len) indicating which elements should participate in attention.
+            `True` values indicate positions that should not participate in attention (e.g., padded elements).
         need_weights : bool, optional
-            Placeholder for compatibility with torch.nn.MultiheadAttention.
-            Always returns None for attention weights. Default: False
+            Placeholder for compatibility with `torch.nn.MultiheadAttention`.
+            This module always returns None for attention weights. Default: False
+        attn_mask : Tensor, optional
+            If specified, pairwise additive (float) mask.
+            Shape: (tgt_seq_len, src_len), (batch_size, tgt_seq_len, src_len), or (batch_size, nhead, tgt_len, src_len).
         is_causal : bool, optional
-            If True, apply causal masking (lower triangular). Works with
-            both dense and nested tensors. Default: False
+            If True, apply causal masking (lower triangular). Default: False
         positions : Tensor, optional
             Position values for rotary embeddings. Only used if rotary_embedding
             is configured. If None, uses integer positions. Can be:
             - (batch, seq_len) for per-sample positions (e.g., m/z values)
             - (seq_len,) for shared positions
-            - Nested tensor (batch, jagged_seq_len) for jagged sequences
-            Default: None
+            Default: None.
 
         Returns
         -------
@@ -153,23 +155,14 @@ class MultiheadAttention(nn.Module):
             Placeholder for compatibility with `torch.nn.MultiHeadAttention`, always None.
 
         """
-        assert (
-            key_padding_mask is None
-        ), """
-        key_padding_mask should not be used with scaled_dot_product_attention.
-        Pass nested query, key and value tensors instead when irregular sequence length.
-        """
-        assert (
-            attn_mask is None
-        ), """
-        attn_mask should not be used with scaled_dot_product_attention.
-        """
-
+        assert not (
+            attn_mask is not None and key_padding_mask is not None
+        ), "attn_mask and key_padding_mask can not be simultaneously given. Please use depthcharge.utils.combine_key_pad_and_attn to combine mask types."
         # Apply input projections
-        if query is key and key is value: # self-attention case
+        if query is key and key is value:  # self-attention case
             qkv = F.linear(query, self.in_proj_weight, self.in_proj_bias)
             Q, K, V = qkv.chunk(3, dim=-1)
-        else: # cross-attention case
+        else:  # cross-attention case
             w_q, w_k, w_v = self.in_proj_weight.chunk(3, dim=0)
             if self.in_proj_bias is not None:
                 b_q, b_k, b_v = self.in_proj_bias.chunk(3, dim=0)
@@ -179,7 +172,7 @@ class MultiheadAttention(nn.Module):
             Q = F.linear(query, w_q, b_q)
             K = F.linear(key, w_k, b_k)
             V = F.linear(value, w_v, b_v)
-        
+
         # [bsz, seqlen, embed_dim] -> [bsz, nhead, seqlen, headdim]
         Q = Q.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
         K = K.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
@@ -189,9 +182,35 @@ class MultiheadAttention(nn.Module):
         if self.rotary_embedding is not None:
             Q, K = self.rotary_embedding(Q, K, positions=positions)
 
-        attn_output = self._sdpa_attention(Q, K, V, is_causal=is_causal)
-        
-        # [bsz, nhead, seqlen, headdim] -> [bsz, seqlen, embed_dim] 
+        if key_padding_mask is not None:
+            attn_mask = ~key_padding_mask[:, None, None, :]
+
+        if attn_mask is not None and attn_mask.ndim == 3:
+            attn_mask = attn_mask[:, None]
+
+        if attn_mask is not None and is_causal:
+            if attn_mask.dtype == torch.bool:
+                attn_mask = torch.logical_and(
+                    attn_mask,
+                    ~generate_tgt_mask(attn_mask.size(-1)).to(
+                        attn_mask.device
+                    ),
+                )
+                is_causal = False
+            else:
+                causal_mask = generate_tgt_mask(Q.shape[-2]).to(
+                    attn_mask.device
+                )
+                attn_mask = attn_mask.masked_fill(
+                    causal_mask, -float("inf")
+                )  # broadcasts to (b, s, s) or (b, nh, s, s)
+                is_causal = False
+
+        attn_output = self._sdpa_attention(
+            Q, K, V, attn_mask=attn_mask, is_causal=is_causal
+        )
+
+        # [bsz, nhead, seqlen, headdim] -> [bsz, seqlen, embed_dim]
         attn_output = attn_output.transpose(1, 2).flatten(-2, -1)
 
         attn_output = self.out_proj(attn_output)
@@ -202,6 +221,7 @@ class MultiheadAttention(nn.Module):
         Q: Tensor,
         K: Tensor,
         V: Tensor,
+        attn_mask: Tensor,
         is_causal: bool = False,
     ) -> Tensor:
         if self.use_context_manager:
@@ -210,6 +230,7 @@ class MultiheadAttention(nn.Module):
                     Q,
                     K,
                     V,
+                    attn_mask=attn_mask,
                     dropout_p=self.dropout_p if self.training else 0.0,
                     is_causal=is_causal,
                 )
@@ -218,6 +239,7 @@ class MultiheadAttention(nn.Module):
                 Q,
                 K,
                 V,
+                attn_mask=attn_mask,
                 dropout_p=self.dropout_p if self.training else 0.0,
                 is_causal=is_causal,
             )

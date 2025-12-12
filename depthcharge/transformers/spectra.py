@@ -42,6 +42,7 @@ class SpectrumTransformerEncoder(
         Attention implementation: "sdpa" (default) or "native".
     rotary_embedding : RotaryEmbedding, optional
         Rotary position embedding module to apply to Q and K in attention.
+        Only compatible with `attention_backend="sdpa"`.
         If None, no rotary embeddings are used. Default: None
 
     Attributes
@@ -57,7 +58,6 @@ class SpectrumTransformerEncoder(
     transformer_encoder : depthcharge.transformers.TransformerEncoder
         The Transformer encoder layers.
 
-
     """
 
     def __init__(
@@ -70,7 +70,6 @@ class SpectrumTransformerEncoder(
         peak_encoder: PeakEncoder | Callable | bool = True,
         attention_backend: str = "sdpa",
         rotary_embedding: torch.nn.Module | None = None,
-        use_nested = True,
     ) -> None:
         """Initialize a SpectrumEncoder."""
         super().__init__()
@@ -105,8 +104,6 @@ class SpectrumTransformerEncoder(
             layer,
             num_layers=self.n_layers,
         )
-        
-        self.use_nested = use_nested
 
     def forward(
         self,
@@ -129,7 +126,7 @@ class SpectrumTransformerEncoder(
             Additional data. These may be used by overwriting the
             `global_token_hook()` method in a subclass.
         mask : torch.Tensor
-            Passed to `torch.nn.TransformerEncoder.forward()`. The mask
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask
             for the sequence.
         global_token_rotary_mz : torch.Tensor of shape (n_spectra,)
             The m/z values for the global tokens to be prepended to
@@ -138,7 +135,7 @@ class SpectrumTransformerEncoder(
             Additional data fields. These may be used by overwriting
             the `global_token_hook()` method in a subclass.
 
-        
+
         Returns
         -------
         latent : torch.Tensor of shape (n_spectra, n_peaks + 1, d_model)
@@ -175,23 +172,21 @@ class SpectrumTransformerEncoder(
         if global_token_rotary_mz is not None:
             global_pos = global_token_rotary_mz[:, None]  # (batch, 1)
         else:
-            global_pos = torch.zeros((mz_array.shape[0], 1), device=mz_array.device, dtype=mz_array.dtype)
+            global_pos = torch.zeros(
+                (mz_array.shape[0], 1),
+                device=mz_array.device,
+                dtype=mz_array.dtype,
+            )
         positions = torch.cat([global_pos, mz_array], dim=1)
 
-        
-        if self.use_nested:
-            peaks = self._convert_dense_to_nested(peaks, src_key_padding_mask)
-            positions = self._convert_dense_to_nested(positions, src_key_padding_mask)
         out = self.transformer_encoder(
             peaks,
             mask=mask,
-            src_key_padding_mask=None if self.use_nested else src_key_padding_mask,
+            src_key_padding_mask=src_key_padding_mask,
             positions=positions,
         )
-        return (
-            self._convert_nested_to_dense(out, src_key_padding_mask),
-            src_key_padding_mask
-        )
+
+        return out, src_key_padding_mask
 
     def global_token_hook(
         self,
@@ -232,15 +227,3 @@ class SpectrumTransformerEncoder(
 
         """
         return torch.zeros((mz_array.shape[0], self.d_model)).type_as(mz_array)
-
-    def _convert_dense_to_nested(self, x, pad_mask):
-        return torch.nested.nested_tensor_from_jagged(
-            x[~pad_mask],
-            lengths=(~pad_mask).sum(1)
-        )
-        
-    def _convert_nested_to_dense(self, x, pad_mask):
-        return x.to_padded_tensor(
-            0.0,
-            output_size=(x.size(0), pad_mask.size(1), x.size(-1))
-        )
