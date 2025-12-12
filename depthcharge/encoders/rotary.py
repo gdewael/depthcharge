@@ -10,9 +10,9 @@ class RotaryEmbedding(nn.Module):
     """Rotary embedding as in RoFormer / RoPE.
 
     Applies rotary positional embeddings to query and key tensors in attention.
-    Unlike additive positional encodings, RoPE rotates the Q and K vectors based
-    on their position, preserving relative position information in the attention
-    computation.
+    Unlike additive positional encodings, RoPE rotates the Q and K vectors
+    based on their position, preserving relative position information in the
+    attention computation.
 
     Parameters
     ----------
@@ -62,7 +62,8 @@ class RotaryEmbedding(nn.Module):
             Position values for each element in the sequence.
             - If None: Use integer positions torch.arange(seq_len)
             - Shape: (batch, seq_len) for per-sample positions
-            Examples: integer positions [0,1,2,..], or m/z values [100.5, 150.2, ...]
+            Examples: integer positions [0,1,2,..],
+            or m/z values [100.5, 150.2, ...]
             Default: None
 
         Returns
@@ -73,32 +74,32 @@ class RotaryEmbedding(nn.Module):
             Key with rotary embeddings applied, same shape as input
 
         """
-        pos_to_use = self.default_pos(q) if positions is None else positions
+        pos_to_use = self._default_pos(q) if positions is None else positions
         if pos_to_use.ndim == 2:
             pos_to_use = pos_to_use[:, None].expand(-1, q.size(1), -1)
 
-        sin, cos = self.get_rotations(pos_to_use, self.thetas)
-        q_rot = q * cos.to(q) + self.rotate_every_two(q) * sin.to(q)
-        k_rot = k * cos.to(k) + self.rotate_every_two(k) * sin.to(k)
+        sin, cos = self._get_rotations(pos_to_use, self.thetas)
+        q_rot = q * cos.to(q) + self._rotate_every_two(q) * sin.to(q)
+        k_rot = k * cos.to(k) + self._rotate_every_two(k) * sin.to(k)
 
         return q_rot, k_rot
 
     @staticmethod
-    def default_pos(x):
+    def _default_pos(x):
         return torch.arange(x.size(-2), device=x.device).expand(*x.shape[:-1])
 
     @staticmethod
-    def get_rotations(pos, thetas):
+    def _get_rotations(pos, thetas):
         mthetas = pos[..., None] * thetas  # (..., seq_len, head_dim/2)
-        sin, cos = map(
-            lambda t: repeat(t, "b ... h  -> b ... (h j)", j=2),
-            (mthetas.sin(), mthetas.cos()),
+
+        sin, cos = (
+            repeat(t, "b ... h  -> b ... (h j)", j=2).to(thetas)
+            for t in (mthetas.sin(), mthetas.cos())
         )
-        sin, cos = map(lambda t: t.to(thetas), (sin, cos))
         return sin, cos
 
     @staticmethod
-    def rotate_every_two(x):
+    def _rotate_every_two(x):
         x = x.clone()
         x = rearrange(x, "... (d j) -> ... d j", j=2)
         x1, x2 = x.unbind(dim=-1)

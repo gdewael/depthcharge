@@ -37,7 +37,7 @@ def combine_key_pad_and_attn(
     key_padding_mask: torch.Tensor,
     num_heads: int,
 ) -> torch.Tensor:
-    """Combine float attn_mask and binary key_padding_mask
+    """Combine float attn_mask and binary key_padding_mask.
 
     Parameters
     ----------
@@ -49,11 +49,11 @@ def combine_key_pad_and_attn(
         number of heads.
 
     """
-    N, S2 = key_padding_mask.shape
-    S1 = attn_mask.size(-2)
+    n, s2 = key_padding_mask.shape
+    s1 = attn_mask.size(-2)
 
     kpm = key_padding_mask[:, None, None, :].expand(
-        N, num_heads, S1, S2
+        n, num_heads, s1, s2
     )  # (n, nh, s1, s2)
     kpm_float = torch.zeros_like(
         kpm, dtype=attn_mask.dtype, device=key_padding_mask.device
@@ -61,9 +61,9 @@ def combine_key_pad_and_attn(
     kpm_float[kpm] = float("-inf")
 
     if attn_mask.ndim == 2:  # (s1, s2) -> (n, nh, s1, s2)
-        am = attn_mask[None, None, :, :].expand(N, num_heads, S1, S2)
+        am = attn_mask[None, None, :, :].expand(n, num_heads, s1, s2)
     elif attn_mask.ndim == 3:  # (n, s1, s2) -> (n, nh, s1, s2)
-        am = attn_mask[:, None].expand(N, num_heads, S1, S2)
+        am = attn_mask[:, None].expand(n, num_heads, s1, s2)
     elif attn_mask.ndim == 4:  # (n, nh, s1, s2)
         am = attn_mask
 

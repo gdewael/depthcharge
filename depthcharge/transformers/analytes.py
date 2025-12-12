@@ -244,8 +244,8 @@ class AnalyteTransformerEncoder(_AnalyteTransformer):
             Additional data. These may be used by overwriting the
             `global_token_hook()` method in a subclass.
         mask : torch.Tensor
-            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask
-            for the sequence.
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`.
+            The mask for the sequence.
         **kwargs : dict
             Additional data fields. These may be used by overwriting
             the `global_token_hook()` method in a subclass.
@@ -389,15 +389,15 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             The representations from a ``TransformerEncoder``, such as a
             ``SpectrumTransformerEncoder``.
         memory_key_padding_mask : torch.Tensor of shape (batch_size, len_seq)
-            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask that
-            indicates which elements of ``memory`` are padding.
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`.
+            The mask that indicates which elements of ``memory`` are padding.
         memory_mask : torch.Tensor
-            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask
-            for the memory sequence.
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`.
+            The mask for the memory sequence.
         tgt_mask : torch.Tensor or None
-            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The default
-            is a mask that is suitable for predicting the next element in
-            the sequence.
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`.
+            The default is a mask that is suitable for predicting the next
+            element in the sequence.
         **kwargs : dict
             Additional data fields. These may be used by overwriting
             the `global_token_hook()` method in a subclass.
@@ -484,15 +484,15 @@ class AnalyteTransformerDecoder(_AnalyteTransformer):
             The representations from a ``TransformerEncoder``, such as a
             ``SpectrumTransformerEncoder``.
         memory_key_padding_mask : torch.Tensor of shape (batch_size, len_seq)
-            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask that
-            indicates which elements of ``memory`` are padding.
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`.
+            The mask that indicates which elements of ``memory`` are padding.
         memory_mask : torch.Tensor
-            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask
-            for the memory sequence.
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`.
+            The mask for the memory sequence.
         tgt_mask : torch.Tensor or None
-            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The default
-            is a mask that is suitable for predicting the next element in
-            the sequence.
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`.
+            The default is a mask that is suitable for predicting the next
+            element in the sequence.
         **kwargs : dict
             Additional data fields. These may be used by overwriting
             the `global_token_hook()` method in a subclass.

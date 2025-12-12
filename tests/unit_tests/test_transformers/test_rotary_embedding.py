@@ -16,7 +16,7 @@ from depthcharge.transformers import (
 )
 
 
-def attn(q, k):
+def _attn(q, k):
     head_dim = q.size(-1)
     scores = torch.matmul(q, k.transpose(-2, -1)) / np.sqrt(head_dim)
     return scores
@@ -40,8 +40,8 @@ def test_shift_invariance(shift, batch_size, seq_len):
     q_rot_shifted, k_rot_shifted = rope(q, k, positions=pos_0 + shift)
 
     torch.testing.assert_close(
-        attn(q_rot_0, k_rot_0),
-        attn(q_rot_shifted, k_rot_shifted),
+        _attn(q_rot_0, k_rot_0),
+        _attn(q_rot_shifted, k_rot_shifted),
         rtol=1e-3,
         atol=1e-5,
         msg=f"Attention patterns differ with shift={shift}, seq_len={seq_len}",
@@ -133,7 +133,7 @@ def test_decoder(batch_size, seq_len):
 
 
 def test_spectrumencoder():
-    """Test if a SpectrumTransformerEncoder with Rotary Embeddings runs"""
+    """Test if a SpectrumTransformerEncoder with Rotary Embeddings runs."""
     torch.manual_seed(42)
     model = SpectrumTransformerEncoder(
         d_model=128,
@@ -153,11 +153,11 @@ def test_spectrumencoder():
         mz_array[i, s_i:] = 0
         int_array[i, s_i:] = 0
 
-    out = model(mz_array, int_array)
+    _ = model(mz_array, int_array)
 
 
 def test_analyteencoder():
-    """Test if a AnalyteTransformerEncoder with Rotary Embeddings runs"""
+    """Test if a AnalyteTransformerEncoder with Rotary Embeddings runs."""
     torch.manual_seed(42)
     model = AnalyteTransformerEncoder(
         n_tokens=100,
@@ -175,11 +175,11 @@ def test_analyteencoder():
     for i, s_i in enumerate(seqlens):  # var len seq
         tokens[i, s_i:] = 0
 
-    out = model(tokens)
+    _ = model(tokens)
 
 
 def test_analytedecoder():
-    """Test if a AnalyteTransformerDecoder with Rotary Embeddings runs"""
+    """Test if a AnalyteTransformerDecoder with Rotary Embeddings runs."""
     torch.manual_seed(42)
     model = AnalyteTransformerDecoder(
         n_tokens=100,
@@ -202,4 +202,4 @@ def test_analytedecoder():
     seqlens = torch.tensor([5, 7, 5, 9, 4, 15, 18, 16])
     mem_pad_mask = torch.arange(20).unsqueeze(0) >= seqlens.unsqueeze(1)
 
-    out = model(tokens, memory=mems, memory_key_padding_mask=mem_pad_mask)
+    _ = model(tokens, memory=mems, memory_key_padding_mask=mem_pad_mask)

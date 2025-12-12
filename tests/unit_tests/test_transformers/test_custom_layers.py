@@ -1,4 +1,4 @@
-"""Test custom transformer layers for numerical equivalence with PyTorch implementation."""
+"""Test custom transformers for numerical equivalence with PyTorch defaults."""
 
 import pytest
 import torch
@@ -21,7 +21,7 @@ from depthcharge.utils import generate_tgt_mask
             8,
             1024,
             0.0,
-        ),  # dropout always 0 because PyTorch's SDPA is non-deterministic with dropout
+        ),  # dropout always 0 because PyTorch's SDPA is non-deterministic
         (64, 4, 256, 0.0),
     ],
 )
@@ -98,7 +98,9 @@ def test_encoder_equivalence(
     if test_float_attn:
         attn_mask = torch.randn(seq_len, seq_len)
         if is_causal:
-            return None  # skip these cases as default pytorch transformer cannot handle both causal and float attn_mask.
+            # skip these cases as default pytorch transformer
+            # cannot handle both causal and float attn_mask.
+            return None
     else:
         attn_mask = None
 
@@ -156,7 +158,7 @@ def test_encoder_equivalence(
             8,
             1024,
             0.0,
-        ),  # dropout always 0 because PyTorch's SDPA is non-deterministic with dropout
+        ),  # dropout always 0 because PyTorch's SDPA is non-deterministic
         (64, 4, 256, 0.0),
     ],
 )
@@ -181,7 +183,7 @@ def test_decoder_equivalence(
     activation,
     test_float_attn,
 ):
-    """Test numerical equivalence with PyTorch TransformerDecoderLayer using dense tensors."""
+    """Test numerical equivalence with PyTorch TransformerDecoderLayer."""
     torch.manual_seed(42)
     pytorch_layer = nn.TransformerDecoderLayer(
         d_model=d_model,
@@ -215,7 +217,6 @@ def test_decoder_equivalence(
 
     custom_transformer.load_state_dict(pytorch_transformer.state_dict())
 
-    # Init input for both pytorch and custom separately to allow gradient comparison
     torch.manual_seed(43)
     tgt_pytorch = torch.randn(batch_size, seq_len, d_model)
     tgt_custom = tgt_pytorch.clone()
@@ -242,7 +243,9 @@ def test_decoder_equivalence(
         tgt_mask = torch.randn(seq_len, seq_len)
         memory_mask = torch.randn(seq_len, seq_len + 5)
         if is_causal:
-            return None  # skip these cases as default pytorch transformer cannot handle both causal and float attn_mask.
+            # skip these cases as default pytorch transformer
+            # cannot handle both causal and float attn_mask.
+            return None
     else:
         tgt_mask = None
         memory_mask = None

@@ -126,8 +126,8 @@ class SpectrumTransformerEncoder(
             Additional data. These may be used by overwriting the
             `global_token_hook()` method in a subclass.
         mask : torch.Tensor
-            Passed to `depthcharge.transformers.TransformerEncoder.forward()`. The mask
-            for the sequence.
+            Passed to `depthcharge.transformers.TransformerEncoder.forward()`.
+            The mask for the sequence.
         global_token_rotary_mz : torch.Tensor of shape (n_spectra,)
             The m/z values for the global tokens to be prepended to
             each spectrum. Only used for rotary embeddings.

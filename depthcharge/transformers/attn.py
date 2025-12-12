@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
@@ -12,7 +11,7 @@ from ..utils import generate_tgt_mask
 
 
 class MultiheadAttention(nn.Module):
-    """Multi-head attention with nested tensor support via scaled_dot_product_attention.
+    """Multi-head attention using scaled_dot_product_attention.
 
     Parameters
     ----------
@@ -59,9 +58,10 @@ class MultiheadAttention(nn.Module):
             batch_first is True
         ), "MultiheadAttention requires batch_first=True"
 
-        assert (
-            embed_dim % num_heads == 0
-        ), f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
+        assert embed_dim % num_heads == 0, (
+            f"embed_dim ({embed_dim}) must be divisible by "
+            f"num_heads ({num_heads})"
+        )
 
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -118,9 +118,6 @@ class MultiheadAttention(nn.Module):
     ) -> tuple[Tensor, Tensor | None]:
         """Forward pass of multi-head attention.
 
-        Supports both dense and nested tensors. For variable-length sequences,
-        pass nested tensors to avoid padding overhead.
-
         Parameters
         ----------
         query : Tensor
@@ -130,19 +127,25 @@ class MultiheadAttention(nn.Module):
         value : Tensor or NestedTensor
             Value embeddings. Shape: (batch, src_len, embed_dim).
         key_padding_mask : Tensor, optional
-            If specified, a mask of shape (batch, src_len) indicating which elements should participate in attention.
-            `True` values indicate positions that should not participate in attention (e.g., padded elements).
+            If specified, a mask of shape (batch, src_len) indicating which
+            elements should participate in attention. `True` values indicate
+            positions that should not participate in attention
+            (e.g., padded elements).
         need_weights : bool, optional
             Placeholder for compatibility with `torch.nn.MultiheadAttention`.
-            This module always returns None for attention weights. Default: False
+            This module always returns None for attention weights.
         attn_mask : Tensor, optional
             If specified, pairwise additive (float) mask.
-            Shape: (tgt_seq_len, src_len), (batch_size, tgt_seq_len, src_len), or (batch_size, nhead, tgt_len, src_len).
+            Shape:
+                - (tgt_seq_len, src_len),
+                - (batch_size, tgt_seq_len, src_len), or
+                - (batch_size, nhead, tgt_len, src_len).
         is_causal : bool, optional
             If True, apply causal masking (lower triangular). Default: False
         positions : Tensor, optional
-            Position values for rotary embeddings. Only used if rotary_embedding
-            is configured. If None, uses integer positions. Can be:
+            Position values for rotary embeddings.
+            Only used if rotary_embedding is configured.
+            If None, uses integer positions. Can be:
             - (batch, seq_len) for per-sample positions (e.g., m/z values)
             - (seq_len,) for shared positions
             Default: None.
@@ -150,18 +153,22 @@ class MultiheadAttention(nn.Module):
         Returns
         -------
         attn_output : Tensor or NestedTensor
-            Attention output. Same layout as inputs (dense or nested).
+            Attention output. Same layout as inputs.
         attn_weights : None
-            Placeholder for compatibility with `torch.nn.MultiHeadAttention`, always None.
+            Placeholder for compatibility with `torch.nn.MultiHeadAttention`.
+            Always None.
 
         """
-        assert not (
-            attn_mask is not None and key_padding_mask is not None
-        ), "attn_mask and key_padding_mask can not be simultaneously given. Please use depthcharge.utils.combine_key_pad_and_attn to combine mask types."
+        assert not (attn_mask is not None and key_padding_mask is not None), (
+            "attn_mask and key_padding_mask can not be simultaneously given. "
+            "Use depthcharge.utils.combine_key_pad_and_attn to combine masks."
+        )
         # Apply input projections
         if query is key and key is value:  # self-attention case
-            qkv = F.linear(query, self.in_proj_weight, self.in_proj_bias)
-            Q, K, V = qkv.chunk(3, dim=-1)
+            qkv = nn.functional.linear(
+                query, self.in_proj_weight, self.in_proj_bias
+            )
+            q, k, v = qkv.chunk(3, dim=-1)
         else:  # cross-attention case
             w_q, w_k, w_v = self.in_proj_weight.chunk(3, dim=0)
             if self.in_proj_bias is not None:
@@ -169,18 +176,18 @@ class MultiheadAttention(nn.Module):
             else:
                 b_q, b_k, b_v = None, None, None
 
-            Q = F.linear(query, w_q, b_q)
-            K = F.linear(key, w_k, b_k)
-            V = F.linear(value, w_v, b_v)
+            q = nn.functional.linear(query, w_q, b_q)
+            k = nn.functional.linear(key, w_k, b_k)
+            v = nn.functional.linear(value, w_v, b_v)
 
         # [bsz, seqlen, embed_dim] -> [bsz, nhead, seqlen, headdim]
-        Q = Q.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
-        K = K.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
-        V = V.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
+        q = q.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
+        k = k.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
+        v = v.unflatten(-1, (self.num_heads, self.head_dim)).transpose(1, 2)
 
         # Apply rotary embeddings
         if self.rotary_embedding is not None:
-            Q, K = self.rotary_embedding(Q, K, positions=positions)
+            q, q = self.rotary_embedding(q, k, positions=positions)
 
         if key_padding_mask is not None:
             attn_mask = ~key_padding_mask[:, None, None, :]
@@ -198,7 +205,7 @@ class MultiheadAttention(nn.Module):
                 )
                 is_causal = False
             else:
-                causal_mask = generate_tgt_mask(Q.shape[-2]).to(
+                causal_mask = generate_tgt_mask(q.shape[-2]).to(
                     attn_mask.device
                 )
                 attn_mask = attn_mask.masked_fill(
@@ -207,7 +214,7 @@ class MultiheadAttention(nn.Module):
                 is_causal = False
 
         attn_output = self._sdpa_attention(
-            Q, K, V, attn_mask=attn_mask, is_causal=is_causal
+            q, k, v, attn_mask=attn_mask, is_causal=is_causal
         )
 
         # [bsz, nhead, seqlen, headdim] -> [bsz, seqlen, embed_dim]
@@ -218,27 +225,27 @@ class MultiheadAttention(nn.Module):
 
     def _sdpa_attention(
         self,
-        Q: Tensor,
-        K: Tensor,
-        V: Tensor,
+        q: Tensor,
+        k: Tensor,
+        v: Tensor,
         attn_mask: Tensor,
         is_causal: bool = False,
     ) -> Tensor:
         if self.use_context_manager:
             with sdpa_kernel(self.context_manager):
-                attn_output = F.scaled_dot_product_attention(
-                    Q,
-                    K,
-                    V,
+                attn_output = nn.functional.scaled_dot_product_attention(
+                    q,
+                    k,
+                    v,
                     attn_mask=attn_mask,
                     dropout_p=self.dropout_p if self.training else 0.0,
                     is_causal=is_causal,
                 )
         else:
-            attn_output = F.scaled_dot_product_attention(
-                Q,
-                K,
-                V,
+            attn_output = nn.functional.scaled_dot_product_attention(
+                q,
+                k,
+                v,
                 attn_mask=attn_mask,
                 dropout_p=self.dropout_p if self.training else 0.0,
                 is_causal=is_causal,

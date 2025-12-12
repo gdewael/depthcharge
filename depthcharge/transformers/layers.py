@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 
 from ..utils import combine_key_pad_and_attn, generate_tgt_mask
@@ -33,7 +32,8 @@ class TransformerEncoderLayer(nn.Module):
         If True, layer norm is done prior to attention and feedforward
         operations (pre-norm). Otherwise it's done after (post-norm).
     batch_first : bool, optional
-        Placeholder for API compatibility with `torch.nn.TransformerDecoderLayer`.
+        Placeholder for API compatibility with
+        `torch.nn.TransformerDecoderLayer`.
         Should always be True.
     attention_backend : str, optional
         Attention implementation: "sdpa" (default) or "native".
@@ -71,9 +71,7 @@ class TransformerEncoderLayer(nn.Module):
         """Initialize a TransformerEncoderLayer."""
         super().__init__()
 
-        assert (
-            batch_first == True
-        ), "TransformerEncoderLayer requires batch_first=True"
+        assert batch_first, "TransformerEncoderLayer requires batch_first=True"
 
         self.d_model = d_model
         self.nhead = nhead
@@ -85,7 +83,8 @@ class TransformerEncoderLayer(nn.Module):
         if attention_backend == "native":
             if rotary_embedding is not None:
                 raise ValueError(
-                    "Rotary embeddings are not supported with the native attention backend."
+                    "Rotary embeddings are not supported with the "
+                    "native attention backend."
                 )
 
             self.self_attn = nn.MultiheadAttention(
@@ -120,9 +119,9 @@ class TransformerEncoderLayer(nn.Module):
 
         # Activation function
         if activation == "relu":
-            self.activation = F.relu
+            self.activation = nn.functional.relu
         elif activation == "gelu":
-            self.activation = F.gelu
+            self.activation = nn.functional.gelu
         elif callable(activation):
             self.activation = activation
         else:
@@ -147,14 +146,20 @@ class TransformerEncoderLayer(nn.Module):
             (batch_size, seq_len, d_model).
         src_mask : Tensor, optional
             If specified, pairwise additive (float) mask
-            Shape: (seq_len, seq_len), (batch_size, seq_len, seq_len) or (batch_size, nhead, seq_len, seq_len)
+            Shape:
+                - (seq_len, seq_len),
+                - (batch_size, seq_len, seq_len) or
+                - (batch_size, nhead, seq_len, seq_len)
         src_key_padding_mask : Tensor, optional
-            If specified, should be a binary mask of shape (batch_size, seq_len) indicating which elements should participate in attention.
-            `True` values indicate positions that should not participate in attention (e.g., padded elements).
+            If specified, should be a binary mask shape (batch_size, seq_len)
+            indicating which elements should participate in attention.
+            `True` values indicate positions that should not participate
+            in attention (e.g., padded elements).
         is_causal : bool, optional
             If True, applies a causal mask.
         positions : Tensor, optional
-            Position values for rotary embeddings. If None, uses integer positions.
+            Position values for rotary embeddings.
+            If None, uses integer positions.
             Ignored when RotaryEmbedding is not used.
             Shape: (batch, seq_len) or (seq_len,)
 
@@ -175,7 +180,11 @@ class TransformerEncoderLayer(nn.Module):
                     list(src_mask.size())
                     == [src.size(0), self.nhead, src.size(1), src.size(1)]
                 )
-            ), "`src_mask` should have size (seq_len, seq_len), (batch_size, seq_len, seq_len), or (batch_size, nhead, seq_len, seq_len)"
+            ), (
+                "`src_mask` should have size (seq_len, seq_len), "
+                "(batch_size, seq_len, seq_len), or "
+                "(batch_size, nhead, seq_len, seq_len)"
+            )
             assert (
                 src_mask.dtype == src.dtype
             ), "`src_mask` should have same dtype as `src`"
@@ -224,11 +233,14 @@ class TransformerEncoderLayer(nn.Module):
         positions: Tensor | None = None,
     ) -> Tensor:
         """Does self-attention with argument interpretation.
-        When causal and attn_mask is given: combine, then don't pass is_causal to MultiHeadAttention.
+
+        When causal and attn_mask is given: combine, then don't pass
+        is_causal to MultiHeadAttention.
         When causal and no attn_mask: if native MultiHeadAttention,
         then pass is_causal with an explicit mask, else just pass is_causal.
 
-        In addition, combines attn_mask with key_padding_mask if both are passed.
+        In addition, combines attn_mask with key_padding_mask if both are
+        passed.
         """
         pass_causal = False
         if is_causal:
@@ -258,7 +270,8 @@ class TransformerEncoderLayer(nn.Module):
                 attn_mask = attn_mask.repeat_interleave(self.nhead, dim=0)
             elif attn_mask.ndim == 4:  # (b, nh, s, s) -> (b*nh, s, s)
                 attn_mask = attn_mask.view(-1, x.shape[-2], x.shape[-2])
-            # attn_mask can also be (s, s) but nn.MultiHeadAttention backends can handle this
+            # attn_mask can also be (s, s) but
+            # nn.MultiHeadAttention backends can handle this
 
         position_kwargs = (
             {}
@@ -305,14 +318,15 @@ class TransformerDecoderLayer(nn.Module):
         If True, layer norm is done prior to attention and feedforward
         operations (pre-norm). Otherwise it's done after (post-norm).
     batch_first : bool, optional
-        Placeholder for API compatibility with `torch.nn.TransformerDecoderLayer`.
+        Placeholder for API compatibility with
+        `torch.nn.TransformerDecoderLayer`.
         Should always be True.
     attention_backend : str, optional
         Attention implementation: "sdpa" (default) or "native".
     rotary_embedding : RotaryEmbedding, optional
         Rotary position embedding module to apply to Q and K in self-attention.
-        If None, no rotary embeddings are used. Note: Only applied to self-attention,
-        not cross-attention. Default: None
+        If None, no rotary embeddings are used.
+        Note: Only applied to self-attention, not cross-attention.
     enable_sdpa_math : bool, optional
         If True, enable SDPA math kernel when using "sdpa" backend.
         Default: True
@@ -344,9 +358,7 @@ class TransformerDecoderLayer(nn.Module):
         """Initialize a TransformerDecoderLayer."""
         super().__init__()
 
-        assert (
-            batch_first == True
-        ), "TransformerDecoderLayer requires batch_first=True"
+        assert batch_first, "TransformerDecoderLayer requires batch_first=True"
 
         self.d_model = d_model
         self.nhead = nhead
@@ -365,7 +377,8 @@ class TransformerDecoderLayer(nn.Module):
         if attention_backend == "native":
             if rotary_embedding is not None:
                 raise ValueError(
-                    "Rotary embeddings are not supported with the native attention backend."
+                    "Rotary embeddings are not supported with the native "
+                    "attention backend."
                 )
 
             self.self_attn = nn.MultiheadAttention(
@@ -408,9 +421,9 @@ class TransformerDecoderLayer(nn.Module):
 
         # Activation function
         if activation == "relu":
-            self.activation = F.relu
+            self.activation = nn.functional.relu
         elif activation == "gelu":
-            self.activation = F.gelu
+            self.activation = nn.functional.gelu
         elif callable(activation):
             self.activation = activation
         else:
@@ -443,20 +456,34 @@ class TransformerDecoderLayer(nn.Module):
             The sequence from the last layer of the encoder.
         tgt_mask : Tensor, optional
             If specified, pairwise additive (float) mask
-            Shape: (tgt_seq_len, tgt_seq_len), (batch_size, tgt_seq_len, tgt_seq_len), or (batch_size, nhead, tgt_seq_len, tgt_seq_len)
+            Shape:
+                - (tgt_seq_len, tgt_seq_len),
+                - (batch_size, tgt_seq_len, tgt_seq_len), or
+                - (batch_size, nhead, tgt_seq_len, tgt_seq_len)
         memory_mask : Tensor, optional
             If specified, pairwise additive (float) mask
-            Shape: (tgt_seq_len, src_seq_len), (batch_size, tgt_seq_len, src_seq_len), or (batch_size, nhead, tgt_seq_len, src_seq_len)
+            Shape:
+                - (tgt_seq_len, src_seq_len),
+                - (batch_size, tgt_seq_len, src_seq_len), or
+                - (batch_size, nhead, tgt_seq_len, src_seq_len)
         tgt_key_padding_mask : Tensor, optional
-            If specified, should be a binary mask of shape (batch_size, tgt_seq_len) indicating which elements should participate in attention.
-            `True` values indicate positions that should not participate in attention (e.g., padded elements).
+            If specified, should be a binary mask of shape
+            (batch_size, tgt_seq_len) indicating which elements
+            should participate in attention. `True` values indicate
+            positions that should not participate in attention
+            (e.g., padded elements).
         memory_key_padding_mask : Tensor, optional
-            If specified, should be a binary mask of shape (batch_size, src_seq_len) indicating which elements should participate in attention.
-            `True` values indicate positions that should not participate in attention (e.g., padded elements).
+            If specified, should be a binary mask of shape
+            (batch_size, src_seq_len) indicating which elements
+            should participate in attention. `True` values indicate
+            positions that should not participate in attention
+            (e.g., padded elements).
         tgt_is_causal : bool, optional
-            If True, applies a causal mask to the sequence to the decoder layer.
+            If True, applies a causal mask to the sequence to the
+            decoder layer.
         memory_is_causal : bool, optional
-            If True, applies a causal mask during cross_attention from memory to targets.
+            If True, applies a causal mask during cross_attention
+            from memory to targets.
         tgt_positions : Tensor, optional
             Position values for rotary embeddings in self-attention on tgt.
             Ignored when RotaryEmbedding is not used.
@@ -480,14 +507,22 @@ class TransformerDecoderLayer(nn.Module):
                     list(tgt_mask.size())
                     == [tgt.size(0), self.nhead, tgt.size(1), tgt.size(1)]
                 )
-            ), "`tgt_mask` should have size (tgt_seq_len, tgt_seq_len), (batch_size, tgt_seq_len, tgt_seq_len), or (batch_size, nhead, tgt_seq_len, tgt_seq_len)"
+            ), (
+                "`tgt_mask` should have size (tgt_seq_len, tgt_seq_len), "
+                "(batch_size, tgt_seq_len, tgt_seq_len), or "
+                "(batch_size, nhead, tgt_seq_len, tgt_seq_len)"
+            )
             assert (
                 tgt_mask.dtype == tgt.dtype
             ), "`tgt_mask` should have same dtype as `tgt`"
         if tgt_key_padding_mask is not None:
-            assert (
-                list(tgt_key_padding_mask.size()) == [tgt.size(0), tgt.size(1)]
-            ), "`tgt_key_padding_mask` should have size (batch_size, tgt_seq_len)"
+            assert list(tgt_key_padding_mask.size()) == [
+                tgt.size(0),
+                tgt.size(1),
+            ], (
+                "`tgt_key_padding_mask` should have size "
+                "(batch_size, tgt_seq_len)"
+            )
             assert (
                 tgt_key_padding_mask.dtype == torch.bool
             ), "`tgt_key_padding_mask` should be bool"
@@ -502,15 +537,22 @@ class TransformerDecoderLayer(nn.Module):
                     list(memory_mask.size())
                     == [tgt.size(0), self.nhead, tgt.size(1), memory.size(1)]
                 )
-            ), "`tgt_mask` should have size (tgt_seq_len, src_seq_len), (batch_size, tgt_seq_len, src_seq_len), or (batch_size, nhead, tgt_seq_len, src_seq_len)"
+            ), (
+                "`tgt_mask` should have size (tgt_seq_len, src_seq_len), "
+                "(batch_size, tgt_seq_len, src_seq_len), or "
+                "(batch_size, nhead, tgt_seq_len, src_seq_len)"
+            )
             assert (
                 memory_mask.dtype == memory.dtype
             ), "`memory_mask` should have same dtype as `memory`"
         if memory_key_padding_mask is not None:
-            assert (
-                list(memory_key_padding_mask.size())
-                == [memory.size(0), memory.size(1)]
-            ), "`memory_key_padding_mask` should have size (batch_size, src_seq_len)"
+            assert list(memory_key_padding_mask.size()) == [
+                memory.size(0),
+                memory.size(1),
+            ], (
+                "`memory_key_padding_mask` should have size "
+                "(batch_size, src_seq_len)"
+            )
             assert (
                 memory_key_padding_mask.dtype == torch.bool
             ), "`memory_key_padding_mask` should be bool"
@@ -568,11 +610,15 @@ class TransformerDecoderLayer(nn.Module):
         positions: Tensor | None = None,
     ) -> Tensor:
         """Does self-attention with argument interpretation.
-        When causal and attn_mask is given: combine, then don't pass is_causal to MultiHeadAttention.
-        When causal and no attn_mask: if native MultiHeadAttention,
-        then pass is_causal with an explicit mask, else just pass is_causal.
 
-        In addition, combines attn_mask with key_padding_mask if both are passed.
+        When causal and attn_mask is given: combine, then don't pass
+        is_causal to MultiHeadAttention.
+        When causal and no attn_mask: if native MultiHeadAttention,
+        then pass is_causal with an explicit mask, else just
+        pass is_causal.
+
+        In addition, combines attn_mask with key_padding_mask
+        if both are passed.
         """
         pass_causal = False
         if is_causal:
@@ -603,7 +649,8 @@ class TransformerDecoderLayer(nn.Module):
                 attn_mask = attn_mask.repeat_interleave(self.nhead, dim=0)
             elif attn_mask.ndim == 4:  # (b, nh, s, s) -> (b*nh, s, s)
                 attn_mask = attn_mask.view(-1, x.shape[-2], x.shape[-2])
-            # attn_mask can also be (s, s) but nn.MultiHeadAttention backends can handle this
+            # attn_mask can also be (s, s) but
+            # nn.MultiHeadAttention backends can handle this
 
         position_kwargs = (
             {}
@@ -632,7 +679,9 @@ class TransformerDecoderLayer(nn.Module):
         is_causal: bool = False,
     ) -> Tensor:
         """Does self-attention with argument interpretation.
-        In addition, combines attn_mask with key_padding_mask if both are passed.
+
+        In addition, combines attn_mask with key_padding_mask
+        if both are passed.
         """
         assert is_causal is False, "Causal cross-attention is not supported."
 
@@ -650,7 +699,8 @@ class TransformerDecoderLayer(nn.Module):
                 attn_mask = attn_mask.repeat_interleave(self.nhead, dim=0)
             elif attn_mask.ndim == 4:  # (b, nh, tgt, mem) -> (b*nh, tgt, mem)
                 attn_mask = attn_mask.view(-1, x.shape[-2], mem.shape[-2])
-            # attn_mask can also be (tgt, mem) but nn.MultiHeadAttention backends can handle this
+            # attn_mask can also be (tgt, mem) but
+            # nn.MultiHeadAttention backends can handle this
 
         x = self.multihead_attn(
             x,
@@ -669,11 +719,12 @@ class TransformerDecoderLayer(nn.Module):
         return self.dropout3(x)
 
 
-def _get_clones(module, N):
-    # FIXME: copy.deepcopy() is not defined on nn.module, from PyTorch source code
+def _get_clones(module, n):
+    # FIXME: copy.deepcopy() is not defined on nn.module,
+    # from PyTorch source code
     import copy
 
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(n)])
 
 
 class TransformerEncoder(nn.Module):
@@ -720,14 +771,19 @@ class TransformerEncoder(nn.Module):
             (batch_size, seq_len, d_model).
         mask : Tensor, optional
             If specified, pairwise additive (float) mask
-            Shape: (batch_size, seq_len, seq_len) or (batch_size, nhead, seq_len, seq_len)
+            Shape:
+                - (batch_size, seq_len, seq_len) or
+                - (batch_size, nhead, seq_len, seq_len)
         src_key_padding_mask : Tensor, optional
-            If specified, should be a binary mask of shape (batch_size, seq_len) indicating which elements should participate in attention.
-            `True` values indicate positions that should not participate in attention (e.g., padded elements).
+            If specified, should be a binary mask of shape
+            (batch_size, seq_len) indicating which elements should
+            participate in attention. `True` values indicate positions
+            that should not participate in attention (e.g., padded elements).
         is_causal : bool, optional
             If True, applies a causal mask.
         positions : Tensor, optional
-            Position values for rotary embeddings. If None, uses integer positions.
+            Position values for rotary embeddings.
+            If None, uses integer positions.
             Ignored when RotaryEmbedding is not used.
             Shape: (batch, seq_len) or (seq_len,).
 
@@ -804,21 +860,34 @@ class TransformerDecoder(nn.Module):
         memory : Tensor of shape (batch_size, src_seq_len, d_model)
             The sequence from the last layer of the encoder.
         tgt_mask : Tensor, optional
-            If specified, pairwise additive (float) mask during target self-attention
-            Shape: (batch_size, tgt_seq_len, tgt_seq_len) or (batch_size, nhead, tgt_seq_len, tgt_seq_len)
+            If specified, pairwise additive (float) mask
+            during target self-attention
+            Shape:
+                - (batch_size, tgt_seq_len, tgt_seq_len) or
+                - (batch_size, nhead, tgt_seq_len, tgt_seq_len)
         memory_mask : Tensor, optional
             If specified, pairwise additive (float) mask
-            Shape: (batch_size, tgt_seq_len, src_seq_len) or (batch_size, nhead, tgt_seq_len, src_seq_len)
+            Shape:
+                - (batch_size, tgt_seq_len, src_seq_len) or
+                - (batch_size, nhead, tgt_seq_len, src_seq_len)
         tgt_key_padding_mask : Tensor, optional
-            If specified, should be a binary mask of shape (batch_size, tgt_seq_len) indicating which elements should participate in attention.
-            `True` values indicate positions that should not participate in attention (e.g., padded elements).
+            If specified, should be a binary mask of shape
+            (batch_size, tgt_seq_len) indicating which elements
+            should participate in attention. `True` values indicate
+            positions that should not participate in attention
+            (e.g., padded elements).
         memory_key_padding_mask : Tensor, optional
-            If specified, should be a binary mask of shape (batch_size, src_seq_len) indicating which elements should participate in attention.
-            `True` values indicate positions that should not participate in attention (e.g., padded elements).
+            If specified, should be a binary mask of shape
+            (batch_size, src_seq_len) indicating which elements
+            should participate in attention. `True` values indicate
+            positions that should not participate in attention
+            (e.g., padded elements).
         tgt_is_causal : bool, optional
-            If True, applies a causal mask to the sequence to the decoder layer.
+            If True, applies a causal mask to the sequence to the
+            decoder layer.
         memory_is_causal : bool, optional
-            If True, applies a causal mask during cross_attention from memory to targets.
+            If True, applies a causal mask during cross_attention from
+            memory to targets.
         tgt_positions : Tensor, optional
             Position values for rotary embeddings in self-attention on tgt.
             Ignored when RotaryEmbedding is not used.
