@@ -189,17 +189,17 @@ class TransformerEncoderLayer(nn.Module):
                 "(batch_size, seq_len, seq_len), or "
                 "(batch_size, nhead, seq_len, seq_len)"
             )
-            assert (
-                src_mask.dtype == src.dtype
-            ), "`src_mask` should have same dtype as `src`"
+            assert src_mask.dtype == src.dtype, (
+                "`src_mask` should have same dtype as `src`"
+            )
         if src_key_padding_mask is not None:
             assert list(src_key_padding_mask.size()) == [
                 src.size(0),
                 src.size(1),
             ], "`src_key_padding_mask` should have size (batch_size, seq_len)"
-            assert (
-                src_key_padding_mask.dtype == torch.bool
-            ), "`src_key_padding_mask` should be bool"
+            assert src_key_padding_mask.dtype == torch.bool, (
+                "`src_key_padding_mask` should be bool"
+            )
 
         if self.norm_first:
             # Pre-norm architecture
@@ -524,9 +524,9 @@ class TransformerDecoderLayer(nn.Module):
                 "(batch_size, tgt_seq_len, tgt_seq_len), or "
                 "(batch_size, nhead, tgt_seq_len, tgt_seq_len)"
             )
-            assert (
-                tgt_mask.dtype == tgt.dtype
-            ), "`tgt_mask` should have same dtype as `tgt`"
+            assert tgt_mask.dtype == tgt.dtype, (
+                "`tgt_mask` should have same dtype as `tgt`"
+            )
         if tgt_key_padding_mask is not None:
             assert list(tgt_key_padding_mask.size()) == [
                 tgt.size(0),
@@ -535,9 +535,9 @@ class TransformerDecoderLayer(nn.Module):
                 "`tgt_key_padding_mask` should have size "
                 "(batch_size, tgt_seq_len)"
             )
-            assert (
-                tgt_key_padding_mask.dtype == torch.bool
-            ), "`tgt_key_padding_mask` should be bool"
+            assert tgt_key_padding_mask.dtype == torch.bool, (
+                "`tgt_key_padding_mask` should be bool"
+            )
         if memory_mask is not None:
             assert (
                 (list(memory_mask.size()) == [tgt.size(1), memory.size(1)])
@@ -554,9 +554,9 @@ class TransformerDecoderLayer(nn.Module):
                 "(batch_size, tgt_seq_len, src_seq_len), or "
                 "(batch_size, nhead, tgt_seq_len, src_seq_len)"
             )
-            assert (
-                memory_mask.dtype == memory.dtype
-            ), "`memory_mask` should have same dtype as `memory`"
+            assert memory_mask.dtype == memory.dtype, (
+                "`memory_mask` should have same dtype as `memory`"
+            )
         if memory_key_padding_mask is not None:
             assert list(memory_key_padding_mask.size()) == [
                 memory.size(0),
@@ -565,9 +565,9 @@ class TransformerDecoderLayer(nn.Module):
                 "`memory_key_padding_mask` should have size "
                 "(batch_size, src_seq_len)"
             )
-            assert (
-                memory_key_padding_mask.dtype == torch.bool
-            ), "`memory_key_padding_mask` should be bool"
+            assert memory_key_padding_mask.dtype == torch.bool, (
+                "`memory_key_padding_mask` should be bool"
+            )
 
         if self.norm_first:
             # Pre-norm architecture

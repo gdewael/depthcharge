@@ -54,9 +54,9 @@ class MultiheadAttention(nn.Module):
         """Initialize MultiheadAttention."""
         super().__init__()
 
-        assert (
-            batch_first is True
-        ), "MultiheadAttention requires batch_first=True"
+        assert batch_first is True, (
+            "MultiheadAttention requires batch_first=True"
+        )
 
         assert embed_dim % num_heads == 0, (
             f"embed_dim ({embed_dim}) must be divisible by "
