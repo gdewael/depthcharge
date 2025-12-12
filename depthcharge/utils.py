@@ -48,6 +48,11 @@ def combine_key_pad_and_attn(
     num_heads: int
         number of heads.
 
+    Returns
+    -------
+    torch.Tensor
+        Combined attention mask of shape (N, num_heads, S1, S2).
+
     """
     n, s2 = key_padding_mask.shape
     s1 = attn_mask.size(-2)

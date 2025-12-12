@@ -93,7 +93,7 @@ class TransformerEncoderLayer(nn.Module):
                 dropout=dropout,
                 batch_first=True,
             )
-        else:
+        elif attention_backend == "sdpa":
             self.self_attn = MultiheadAttention(
                 embed_dim=d_model,
                 num_heads=nhead,
@@ -103,6 +103,10 @@ class TransformerEncoderLayer(nn.Module):
                 enable_sdpa_math=enable_sdpa_math,
                 enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
                 enable_sdpa_flash_attention=enable_sdpa_flash_attention,
+            )
+        else:
+            raise ValueError(
+                '`attention_backend` should be one of "sdpa" or "native"'
             )
 
         # Feedforward network
@@ -384,7 +388,7 @@ class TransformerDecoderLayer(nn.Module):
             self.self_attn = nn.MultiheadAttention(
                 **attn_args,
             )
-        else:
+        elif attention_backend == "sdpa":
             self.self_attn = MultiheadAttention(
                 **attn_args,
                 rotary_embedding=rotary_embedding,
@@ -392,17 +396,25 @@ class TransformerDecoderLayer(nn.Module):
                 enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
                 enable_sdpa_flash_attention=enable_sdpa_flash_attention,
             )
+        else:
+            raise ValueError(
+                '`attention_backend` should be one of "sdpa" or "native"'
+            )
 
         if attention_backend == "native":
             self.multihead_attn = nn.MultiheadAttention(
                 **attn_args,
             )
-        else:
+        elif attention_backend == "sdpa":
             self.multihead_attn = MultiheadAttention(
                 **attn_args,
                 enable_sdpa_math=enable_sdpa_math,
                 enable_sdpa_mem_efficient=enable_sdpa_mem_efficient,
                 enable_sdpa_flash_attention=enable_sdpa_flash_attention,
+            )
+        else:
+            raise ValueError(
+                '`attention_backend` should be one of "sdpa" or "native"'
             )
 
         # Feedforward network
@@ -538,7 +550,7 @@ class TransformerDecoderLayer(nn.Module):
                     == [tgt.size(0), self.nhead, tgt.size(1), memory.size(1)]
                 )
             ), (
-                "`tgt_mask` should have size (tgt_seq_len, src_seq_len), "
+                "`memory_mask` should have size (tgt_seq_len, src_seq_len), "
                 "(batch_size, tgt_seq_len, src_seq_len), or "
                 "(batch_size, nhead, tgt_seq_len, src_seq_len)"
             )
@@ -678,10 +690,12 @@ class TransformerDecoderLayer(nn.Module):
         key_padding_mask: Tensor | None,
         is_causal: bool = False,
     ) -> Tensor:
-        """Does self-attention with argument interpretation.
+        """Performs cross-attention (multihead attention with memory).
 
-        In addition, combines attn_mask with key_padding_mask
-        if both are passed.
+        This method applies multihead attention where `x` is the target (query)
+        and `mem` is the memory (key and value), as in cross-attention.
+        In addition, combines `attn_mask` with `key_padding_mask`
+        if both are provided.
         """
         assert is_causal is False, "Causal cross-attention is not supported."
 

@@ -135,7 +135,6 @@ class SpectrumTransformerEncoder(
             Additional data fields. These may be used by overwriting
             the `global_token_hook()` method in a subclass.
 
-
         Returns
         -------
         latent : torch.Tensor of shape (n_spectra, n_peaks + 1, d_model)

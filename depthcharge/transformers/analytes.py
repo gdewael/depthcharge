@@ -135,16 +135,6 @@ class _AnalyteTransformer(torch.nn.Module, ModelMixin, TransformerMixin):
             self.token_encoder.weight
         )
 
-    def _convert_dense_to_nested(self, x, pad_mask):
-        return torch.nested.nested_tensor_from_jagged(
-            x[~pad_mask], lengths=(~pad_mask).sum(1)
-        )
-
-    def _convert_nested_to_dense(self, x, pad_mask):
-        return x.to_padded_tensor(
-            0.0, output_size=(x.size(0), pad_mask.size(1), x.size(-1))
-        )
-
 
 class AnalyteTransformerEncoder(_AnalyteTransformer):
     """A transformer encoder for peptide and small molecule analytes.
