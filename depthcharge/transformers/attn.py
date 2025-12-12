@@ -187,7 +187,7 @@ class MultiheadAttention(nn.Module):
 
         # Apply rotary embeddings
         if self.rotary_embedding is not None:
-            q, q = self.rotary_embedding(q, k, positions=positions)
+            q, k = self.rotary_embedding(q, k, positions=positions)
 
         if key_padding_mask is not None:
             attn_mask = ~key_padding_mask[:, None, None, :]
