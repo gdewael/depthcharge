@@ -332,12 +332,15 @@ class MzmlParser(BaseParser):
 
             precursor_ion = precursor_ion[0]
             precursor_mz = float(precursor_ion["selected ion m/z"])
-            if "charge state" in precursor_ion:
-                precursor_charge = int(precursor_ion["charge state"])
-            elif "possible charge state" in precursor_ion:
-                precursor_charge = int(precursor_ion["possible charge state"])
+            charge = precursor_ion.get("charge state")
+            if charge is not None:
+                precursor_charge = int(charge)
             else:
-                precursor_charge = 0
+                charge = precursor_ion.get("possible charge state")
+                if charge is not None:
+                    precursor_charge = int(charge)
+                else:
+                    precursor_charge = 0
         else:
             precursor_mz, precursor_charge = None, 0
 
