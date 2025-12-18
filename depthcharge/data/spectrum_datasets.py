@@ -32,12 +32,12 @@ class SpectrumDataset(LanceDataset):
     """Store and access a collection of mass spectra.
 
     Parse and/or add mass spectra to an index in the
-    [lance data format](https://lancedb.github.io/lance/index.html).
+    [lance data format](https://lance.org).
     This format enables fast random access to spectra for training.
     This file is then served as a PyTorch IterableDataset, allowing
     spectra to be accessed efficiently for training and inference.
     This is accomplished using the
-    [Lance PyTorch integration](https://lancedb.github.io/lance/integrations/pytorch.html).
+    [Lance PyTorch integration](https://lance.org/integrations/pytorch).
 
     The `batch_size` parameter for this class indepedent of the `batch_size`
     of the PyTorch DataLoader. Generally, we only want the former parameter to
@@ -70,7 +70,7 @@ class SpectrumDataset(LanceDataset):
         DataFrame or parquet file inputs.
     **kwargs : dict
         Keyword arguments to initialize a
-        `[lance.torch.data.LanceDataset](https://lancedb.github.io/lance/api/python/lance.torch.html#lance.torch.data.LanceDataset)`.
+        `[lance.torch.data.LanceDataset](https://github.com/lance-format/lance/blob/92aa361099f42a40e9aa9f9915d041fe1dd30671/python/python/lance/torch/data.py#L177)`.
 
     Attributes
     ----------
@@ -220,7 +220,7 @@ class SpectrumDataset(LanceDataset):
             peak files that are provided.
         **kwargs : dict
             Keyword arguments to initialize a
-            `[lance.torch.data.LanceDataset](https://lancedb.github.io/lance/api/python/lance.torch.html#lance.torch.data.LanceDataset)`.
+            `[lance.torch.data.LanceDataset](https://github.com/lance-format/lance/blob/92aa361099f42a40e9aa9f9915d041fe1dd30671/python/python/lance/torch/data.py#L177)`.
 
         Returns
         -------
@@ -273,12 +273,12 @@ class AnnotatedSpectrumDataset(SpectrumDataset):
     """Store and access a collection of annotated mass spectra.
 
     Parse and/or add mass spectra to an index in the
-    [lance data format](https://lancedb.github.io/lance/index.html).
+    [lance data format](https://lance.org).
     This format enables fast random access to spectra for training.
     This file is then served as a PyTorch IterableDataset, allowing
     spectra to be accessed efficiently for training and inference.
     This is accomplished using the
-    [Lance PyTorch integration](https://lancedb.github.io/lance/integrations/pytorch.html).
+    [Lance PyTorch integration](https://lance.org/integrations/pytorch).
 
     The `batch_size` parameter for this class indepedent of the `batch_size`
     of the PyTorch DataLoader. Generally, we only want the former parameter to
@@ -316,7 +316,7 @@ class AnnotatedSpectrumDataset(SpectrumDataset):
         DataFrame or parquet file inputs.
     **kwargs : dict
         Keyword arguments to initialize a
-        `[lance.torch.data.LanceDataset](https://lancedb.github.io/lance/api/python/lance.torch.html#lance.torch.data.LanceDataset)`.
+        `[lance.torch.data.LanceDataset](https://github.com/lance-format/lance/blob/92aa361099f42a40e9aa9f9915d041fe1dd30671/python/python/lance/torch/data.py#L177)`.
 
     Attributes
     ----------
@@ -410,7 +410,7 @@ class AnnotatedSpectrumDataset(SpectrumDataset):
             peak files that are provided.
         **kwargs : dict
             Keyword arguments to initialize a
-            `[lance.torch.data.LanceDataset](https://lancedb.github.io/lance/api/python/lance.torch.html#lance.torch.data.LanceDataset)`.
+            `[lance.torch.data.LanceDataset](https://github.com/lance-format/lance/blob/92aa361099f42a40e9aa9f9915d041fe1dd30671/python/python/lance/torch/data.py#L177)`.
 
         Returns
         -------
