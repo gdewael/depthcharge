@@ -10,6 +10,106 @@ from ..utils import combine_key_pad_and_attn, generate_tgt_mask
 from .attn import MultiheadAttention
 
 
+def _validate_attn_mask(
+    mask: Tensor,
+    tensor: Tensor,
+    nhead: int,
+    mask_name: str,
+    tgt_seq_len: int,
+    src_seq_len: int | None = None,
+) -> None:
+    """Validate attention mask shape and dtype.
+
+    Parameters
+    ----------
+    mask : Tensor
+        The attention mask to validate.
+    tensor : Tensor
+        The reference tensor for dtype checking.
+    nhead : int
+        Number of attention heads.
+    mask_name : str
+        Name of the mask for error messages.
+    tgt_seq_len : int
+        Target sequence length.
+    src_seq_len : int, optional
+        Source sequence length. If None, expects square mask (self-attention).
+        If provided, expects rectangular mask (cross-attention).
+
+    Raises
+    ------
+    ValueError
+        If mask shape is invalid.
+    TypeError
+        If mask dtype doesn't match tensor dtype.
+
+    """
+    if src_seq_len is None:
+        src_seq_len = tgt_seq_len
+
+    batch_size = tensor.size(0)
+    valid_shapes = (
+        (list(mask.size()) == [tgt_seq_len, src_seq_len])
+        or (list(mask.size()) == [batch_size, tgt_seq_len, src_seq_len])
+        or (list(mask.size()) == [batch_size, nhead, tgt_seq_len, src_seq_len])
+    )
+
+    if not valid_shapes:
+        if src_seq_len == tgt_seq_len:
+            expected = (
+                "(seq_len, seq_len), (batch_size, seq_len, seq_len), or "
+                "(batch_size, nhead, seq_len, seq_len)"
+            )
+        else:
+            expected = (
+                "(tgt_seq_len, src_seq_len), "
+                "(batch_size, tgt_seq_len, src_seq_len), or "
+                "(batch_size, nhead, tgt_seq_len, src_seq_len)"
+            )
+        raise ValueError(f"`{mask_name}` should have size {expected}")
+
+    if mask.dtype != tensor.dtype:
+        raise TypeError(
+            f"`{mask_name}` should have same dtype as reference tensor"
+        )
+
+
+def _validate_key_padding_mask(
+    mask: Tensor,
+    batch_size: int,
+    seq_len: int,
+    mask_name: str,
+) -> None:
+    """Validate key padding mask shape and dtype.
+
+    Parameters
+    ----------
+    mask : Tensor
+        The key padding mask to validate.
+    batch_size : int
+        Expected batch size.
+    seq_len : int
+        Expected sequence length.
+    mask_name : str
+        Name of the mask for error messages.
+
+    Raises
+    ------
+    ValueError
+        If mask shape is invalid.
+    TypeError
+        If mask dtype is not bool.
+
+    """
+    if list(mask.size()) != [batch_size, seq_len]:
+        raise ValueError(
+            f"`{mask_name}` should have size (batch_size, seq_len)"
+        )
+
+    if mask.dtype != torch.bool:
+        raise TypeError(f"`{mask_name}` should be bool")
+
+
 class TransformerEncoderLayer(nn.Module):
     """Custom Transformer encoder layer.
 
@@ -71,7 +171,10 @@ class TransformerEncoderLayer(nn.Module):
         """Initialize a TransformerEncoderLayer."""
         super().__init__()
 
-        assert batch_first, "TransformerEncoderLayer requires batch_first=True"
+        if not batch_first:
+            raise ValueError(
+                "TransformerEncoderLayer requires batch_first=True"
+            )
 
         self.d_model = d_model
         self.nhead = nhead
@@ -174,31 +277,19 @@ class TransformerEncoderLayer(nn.Module):
 
         """
         if src_mask is not None:
-            assert (
-                (list(src_mask.size()) == [src.size(1), src.size(1)])
-                or (
-                    list(src_mask.size())
-                    == [src.size(0), src.size(1), src.size(1)]
-                )
-                or (
-                    list(src_mask.size())
-                    == [src.size(0), self.nhead, src.size(1), src.size(1)]
-                )
-            ), (
-                "`src_mask` should have size (seq_len, seq_len), "
-                "(batch_size, seq_len, seq_len), or "
-                "(batch_size, nhead, seq_len, seq_len)"
-            )
-            assert src_mask.dtype == src.dtype, (
-                "`src_mask` should have same dtype as `src`"
+            _validate_attn_mask(
+                src_mask,
+                src,
+                self.nhead,
+                "src_mask",
+                src.size(1),
             )
         if src_key_padding_mask is not None:
-            assert list(src_key_padding_mask.size()) == [
+            _validate_key_padding_mask(
+                src_key_padding_mask,
                 src.size(0),
                 src.size(1),
-            ], "`src_key_padding_mask` should have size (batch_size, seq_len)"
-            assert src_key_padding_mask.dtype == torch.bool, (
-                "`src_key_padding_mask` should be bool"
+                "src_key_padding_mask",
             )
 
         if self.norm_first:
@@ -362,7 +453,10 @@ class TransformerDecoderLayer(nn.Module):
         """Initialize a TransformerDecoderLayer."""
         super().__init__()
 
-        assert batch_first, "TransformerDecoderLayer requires batch_first=True"
+        if not batch_first:
+            raise ValueError(
+                "TransformerDecoderLayer requires batch_first=True"
+            )
 
         self.d_model = d_model
         self.nhead = nhead
@@ -509,64 +603,35 @@ class TransformerDecoderLayer(nn.Module):
 
         """
         if tgt_mask is not None:
-            assert (
-                (list(tgt_mask.size()) == [tgt.size(1), tgt.size(1)])
-                or (
-                    list(tgt_mask.size())
-                    == [tgt.size(0), tgt.size(1), tgt.size(1)]
-                )
-                or (
-                    list(tgt_mask.size())
-                    == [tgt.size(0), self.nhead, tgt.size(1), tgt.size(1)]
-                )
-            ), (
-                "`tgt_mask` should have size (tgt_seq_len, tgt_seq_len), "
-                "(batch_size, tgt_seq_len, tgt_seq_len), or "
-                "(batch_size, nhead, tgt_seq_len, tgt_seq_len)"
-            )
-            assert tgt_mask.dtype == tgt.dtype, (
-                "`tgt_mask` should have same dtype as `tgt`"
+            _validate_attn_mask(
+                tgt_mask,
+                tgt,
+                self.nhead,
+                "tgt_mask",
+                tgt.size(1),
             )
         if tgt_key_padding_mask is not None:
-            assert list(tgt_key_padding_mask.size()) == [
+            _validate_key_padding_mask(
+                tgt_key_padding_mask,
                 tgt.size(0),
                 tgt.size(1),
-            ], (
-                "`tgt_key_padding_mask` should have size "
-                "(batch_size, tgt_seq_len)"
-            )
-            assert tgt_key_padding_mask.dtype == torch.bool, (
-                "`tgt_key_padding_mask` should be bool"
+                "tgt_key_padding_mask",
             )
         if memory_mask is not None:
-            assert (
-                (list(memory_mask.size()) == [tgt.size(1), memory.size(1)])
-                or (
-                    list(memory_mask.size())
-                    == [tgt.size(0), tgt.size(1), memory.size(1)]
-                )
-                or (
-                    list(memory_mask.size())
-                    == [tgt.size(0), self.nhead, tgt.size(1), memory.size(1)]
-                )
-            ), (
-                "`memory_mask` should have size (tgt_seq_len, src_seq_len), "
-                "(batch_size, tgt_seq_len, src_seq_len), or "
-                "(batch_size, nhead, tgt_seq_len, src_seq_len)"
-            )
-            assert memory_mask.dtype == memory.dtype, (
-                "`memory_mask` should have same dtype as `memory`"
+            _validate_attn_mask(
+                memory_mask,
+                memory,
+                self.nhead,
+                "memory_mask",
+                tgt.size(1),
+                memory.size(1),
             )
         if memory_key_padding_mask is not None:
-            assert list(memory_key_padding_mask.size()) == [
+            _validate_key_padding_mask(
+                memory_key_padding_mask,
                 memory.size(0),
                 memory.size(1),
-            ], (
-                "`memory_key_padding_mask` should have size "
-                "(batch_size, src_seq_len)"
-            )
-            assert memory_key_padding_mask.dtype == torch.bool, (
-                "`memory_key_padding_mask` should be bool"
+                "memory_key_padding_mask",
             )
 
         if self.norm_first:
@@ -697,7 +762,8 @@ class TransformerDecoderLayer(nn.Module):
         In addition, combines `attn_mask` with `key_padding_mask`
         if both are provided.
         """
-        assert is_causal is False, "Causal cross-attention is not supported."
+        if is_causal is not False:
+            raise ValueError("Causal cross-attention is not supported.")
 
         if attn_mask is not None and key_padding_mask is not None:
             attn_mask = combine_key_pad_and_attn(

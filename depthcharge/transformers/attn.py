@@ -54,14 +54,14 @@ class MultiheadAttention(nn.Module):
         """Initialize MultiheadAttention."""
         super().__init__()
 
-        assert batch_first is True, (
-            "MultiheadAttention requires batch_first=True"
-        )
+        if batch_first is not True:
+            raise ValueError("MultiheadAttention requires batch_first=True")
 
-        assert embed_dim % num_heads == 0, (
-            f"embed_dim ({embed_dim}) must be divisible by "
-            f"num_heads ({num_heads})"
-        )
+        if embed_dim % num_heads != 0:
+            raise ValueError(
+                f"embed_dim ({embed_dim}) must be divisible by "
+                f"num_heads ({num_heads})"
+            )
 
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -159,10 +159,12 @@ class MultiheadAttention(nn.Module):
             Always None.
 
         """
-        assert not (attn_mask is not None and key_padding_mask is not None), (
-            "attn_mask and key_padding_mask can not be simultaneously given. "
-            "Use depthcharge.utils.combine_key_pad_and_attn to combine masks."
-        )
+        if attn_mask is not None and key_padding_mask is not None:
+            raise ValueError(
+                "attn_mask and key_padding_mask can not be simultaneously "
+                "given. Use depthcharge.utils.combine_key_pad_and_attn to "
+                "combine masks."
+            )
         # Apply input projections
         if query is key and key is value:  # self-attention case
             qkv = nn.functional.linear(
