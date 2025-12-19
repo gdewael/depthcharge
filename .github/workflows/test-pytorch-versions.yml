@@ -7,6 +7,7 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false  # Don't cancel other jobs if one fails
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         torch-version: ["2.0.1", "2.1.2", "2.2.2", "2.3.1", "2.4.1", "2.5.1", "2.6.0", "2.7.1", "2.8.0", "2.9.1"]
@@ -20,7 +21,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version-file: pyproject.toml
+        python-version: "3.12"
 
     - name: Create constraint file for PyTorch ${{ matrix.torch-version }}
       shell: bash
@@ -30,9 +31,9 @@ jobs:
     - name: Install dependencies with PyTorch constraint
       shell: bash
       run: |
-        uv pip install --system -e ".[dev]" \
+        uv pip install --system -e . --group dev \
           --constraint constraints.txt \
-          --index-url https://download.pytorch.org/whl/cpu
+          --extra-index-url https://download.pytorch.org/whl/cpu
 
     - name: Verify PyTorch version
       shell: bash
